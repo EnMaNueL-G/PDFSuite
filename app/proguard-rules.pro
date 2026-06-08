@@ -1,19 +1,21 @@
-# PDFReader ProGuard rules
+# PDFSuite ProGuard rules
 
-# Keep PDFBox
--keep class com.tom_roush.** { *; }
--dontwarn com.tom_roush.**
+# iTextG (iText 5 for Android)
+-keep class com.itextpdf.** { *; }
+-dontwarn com.itextpdf.**
+-dontwarn org.bouncycastle.**
+-keep class org.bouncycastle.** { *; }
 
-# Keep Compose internals
+# Compose
 -keep class androidx.compose.** { *; }
 
-# Kotlin serialization
+# Kotlin
 -keepattributes *Annotation*
 -keepclassmembers class ** {
     @kotlin.jvm.JvmField *;
 }
 
-# General Android
+# Android Parcelable
 -keepclassmembers class * implements android.os.Parcelable {
     public static final android.os.Parcelable$Creator CREATOR;
 }

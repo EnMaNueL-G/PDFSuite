@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace  = "com.enmanuelgil.pdfreader"
+    namespace  = "com.enmanuelgil.pdfsuite"
     compileSdk = 34
 
     defaultConfig {
-        applicationId  = "com.enmanuelgil.pdfreader"
+        applicationId  = "com.enmanuelgil.pdfsuite"
         minSdk         = 26
         targetSdk      = 34
         versionCode    = 1
@@ -27,8 +27,7 @@ android {
             )
         }
         debug {
-            applicationIdSuffix = ".debug"
-            isDebuggable        = true
+            isDebuggable = true
         }
     }
 
@@ -48,6 +47,11 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/NOTICE"
+            excludes += "/META-INF/LICENSE"
+            excludes += "/META-INF/*.RSA"
+            excludes += "/META-INF/*.SF"
+            excludes += "/META-INF/*.DSA"
         }
     }
 }
@@ -68,8 +72,10 @@ dependencies {
     implementation(libs.compose.material.icons)
 
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.coil.compose)
     implementation("androidx.appcompat:appcompat:1.6.1")
+
+    // PDF manipulation — iTextG (iText 5 for Android, AGPL)
+    implementation("com.itextpdf:itextg:5.5.10")
 
     debugImplementation(libs.compose.ui.tooling)
 }

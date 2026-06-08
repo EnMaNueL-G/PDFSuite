@@ -1,44 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PDF Reader</string>
+    <string name="app_name">PDFSuite</string>
     <string name="tab_home">Inicio</string>
-    <string name="tab_reader">Lector</string>
     <string name="tab_tools">Herramientas</string>
-    <string name="tab_library">Biblioteca</string>
-
-    <!-- Home -->
-    <string name="home_recent">Recientes</string>
-    <string name="home_favorites">Favoritos</string>
-    <string name="home_no_recent">Aún no hay archivos recientes.\nAbre un PDF para comenzar.</string>
-    <string name="home_no_favorites">No tienes favoritos.\nPulsa ★ en cualquier PDF para guardarlo.</string>
+    <string name="tab_about">Acerca de</string>
     <string name="btn_open_file">Abrir PDF</string>
-
-    <!-- Reader -->
-    <string name="reader_page">Página %1$d de %2$d</string>
-    <string name="reader_zoom">Zoom %1$d%%</string>
-    <string name="reader_search_hint">Buscar en el documento…</string>
-    <string name="reader_no_results">Sin resultados</string>
-
-    <!-- Tools -->
-    <string name="tools_merge">Combinar PDFs</string>
-    <string name="tools_split">Dividir PDF</string>
-    <string name="tools_compress">Comprimir</string>
-    <string name="tools_rotate">Rotar páginas</string>
-    <string name="tools_extract">Extraer páginas</string>
-    <string name="tools_img2pdf">Imágenes a PDF</string>
-    <string name="tools_pdf2img">PDF a imágenes</string>
-    <string name="tools_metadata">Metadatos</string>
-
-    <!-- Common -->
-    <string name="action_add_favorite">Añadir a favoritos</string>
-    <string name="action_remove_favorite">Quitar de favoritos</string>
-    <string name="action_share">Compartir</string>
-    <string name="action_delete">Eliminar</string>
-    <string name="action_rename">Renombrar</string>
-    <string name="action_info">Información</string>
-    <string name="label_pages">%1$d páginas</string>
-    <string name="label_size">%1$s</string>
-    <string name="error_open_pdf">No se pudo abrir el archivo PDF</string>
-    <string name="error_tool">Error al procesar el archivo</string>
+    <string name="error_open_pdf">No se pudo abrir el PDF</string>
     <string name="success_saved">Guardado en Descargas</string>
 </resources>
