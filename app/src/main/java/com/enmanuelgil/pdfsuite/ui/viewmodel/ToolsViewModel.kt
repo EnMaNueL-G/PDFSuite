@@ -124,6 +124,61 @@ class ToolsViewModel : ViewModel() {
         }
     }
 
+    // ── New tools v1.2 ────────────────────────────────────────────────────────
+
+    fun addAnnotation(
+        context  : Context,
+        uri      : Uri,
+        type     : String,
+        text     : String,
+        pageNum  : Int,
+        x        : Float,
+        y        : Float,
+        width    : Float,
+        height   : Float,
+        colorHex : Int
+    ) = run { PdfTools.addAnnotation(context, uri, type, text, pageNum, x, y, width, height, colorHex) }
+
+    fun insertImageFromUri(
+        context  : Context,
+        pdfUri   : Uri,
+        imageUri : Uri,
+        pageNum  : Int,
+        x        : Float,
+        y        : Float,
+        maxWidth : Float,
+        maxHeight: Float
+    ) = run { PdfTools.insertImageFromUri(context, pdfUri, imageUri, pageNum, x, y, maxWidth, maxHeight) }
+
+    fun deletePages(context: Context, uri: Uri, pages: Set<Int>) =
+        run { PdfTools.deletePagesList(context, uri, pages) }
+
+    fun reorderPages(context: Context, uri: Uri, newOrder: List<Int>) =
+        run { PdfTools.reorderPages(context, uri, newOrder) }
+
+    // ── New tools v1.3 ────────────────────────────────────────────────────────
+
+    fun imagesToPdf(context: Context, imageUris: List<Uri>, outName: String = "imagenes.pdf") =
+        run { PdfTools.urisToPdf(context, imageUris, outName) }
+
+    fun redactAreas(context: Context, uri: Uri, areas: List<PdfTools.RedactArea>) =
+        run { PdfTools.redactAreas(context, uri, areas) }
+
+    // ── WYSIWYG text editing ──────────────────────────────────────────────────
+
+    fun applyWysiwygEdits(
+        context : Context,
+        uri     : Uri,
+        edits   : List<Pair<PdfTools.PdfTextBlock, String>>,
+        pageNum : Int
+    ) = run { PdfTools.applyWysiwygEdits(context, uri, edits, pageNum) }
+
+    suspend fun extractTextBlocks(context: Context, uri: Uri, pageNum: Int) =
+        PdfTools.extractTextBlocks(context, uri, pageNum)
+
+    suspend fun getPdfPageInfo(context: Context, uri: Uri, pageNum: Int) =
+        PdfTools.getPdfPageInfo(context, uri, pageNum)
+
     // ── Share result ──────────────────────────────────────────────────────────
 
     fun shareResult(context: Context) {

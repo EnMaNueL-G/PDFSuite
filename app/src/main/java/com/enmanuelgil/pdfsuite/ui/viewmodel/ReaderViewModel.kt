@@ -59,10 +59,11 @@ class ReaderViewModel : ViewModel() {
     }
 
     suspend fun getPage(context: Context, uri: Uri, pageIndex: Int, nightMode: Boolean): Bitmap? {
-        val key = "${uri}#${pageIndex}#$nightMode"
+        // nightMode filter is applied at UI layer — cache by uri+index only
+        val key = "${uri}#${pageIndex}"
         cache.get(key)?.let { return it }
         val metrics = context.resources.displayMetrics
-        val bmp = PdfRepository.renderPage(context, uri, pageIndex, metrics.widthPixels, nightMode)
+        val bmp = PdfRepository.renderPage(context, uri, pageIndex, metrics.widthPixels)
         if (bmp != null) cache.put(key, bmp)
         return bmp
     }
@@ -71,7 +72,7 @@ class ReaderViewModel : ViewModel() {
     fun goToPage(page: Int)   { _targetPage.value  = page.coerceIn(0, _pageCount.value - 1) }
     fun clearTargetPage()     { _targetPage.value  = -1   }
     fun toggleBars()          { _showBars.value    = !_showBars.value    }
-    fun toggleNightMode()     { _nightMode.value   = !_nightMode.value; cache.evictAll() }
+    fun toggleNightMode()     { _nightMode.value   = !_nightMode.value }
     fun toggleSearch()        { _showSearch.value  = !_showSearch.value  }
     fun setSearch(context: Context, q: String) { _searchQuery.value = q  }
 

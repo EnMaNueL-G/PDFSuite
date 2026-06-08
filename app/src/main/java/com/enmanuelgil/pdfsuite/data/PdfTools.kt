@@ -2,6 +2,7 @@ package com.enmanuelgil.pdfsuite.data
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.core.content.FileProvider
 import com.enmanuelgil.pdfsuite.model.PdfFormField
@@ -466,6 +467,208 @@ object PdfTools {
         }
     }
 
+    // ── Add annotation (sticky note / free text / highlight) ─────────────────
+
+    /**
+     * type: "note" → sticky note (comment balloon)
+     *        "freetext" → visible text overlay annotation
+     *        "highlight" → semi-transparent colored rectangle
+     */
+    suspend fun addAnnotation(
+        context  : Context,
+        uri      : Uri,
+        type     : String,   // "note" | "freetext" | "highlight"
+        text     : String,
+        pageNum  : Int   = 1,
+        x        : Float = 72f,
+        y        : Float = 500f,
+        width    : Float = 200f,
+        height   : Float = 80f,
+        colorHex : Int   = 0xFFFF00,   // yellow default
+        outName  : String = "anotado.pdf"
+    ): ToolResult = withContext(Dispatchers.IO) {
+        try {
+            val inp     = context.contentResolver.openInputStream(uri)
+                ?: return@withContext ToolResult.Error("No se pudo abrir el PDF")
+            val reader  = PdfReader(inp)
+            val total   = reader.numberOfPages
+            val page    = pageNum.coerceIn(1, total)
+            val out     = outFile(context, outName)
+            val stamper = PdfStamper(reader, FileOutputStream(out))
+
+            val r = ((colorHex shr 16) and 0xFF) / 255f
+            val g = ((colorHex shr 8 ) and 0xFF) / 255f
+            val b = ( colorHex         and 0xFF) / 255f
+            val baseColor = BaseColor(r, g, b)
+
+            val rect = Rectangle(x, y, x + width, y + height)
+
+            when (type) {
+                "note" -> {
+                    // Sticky note annotation
+                    val annotation = PdfAnnotation.createText(
+                        stamper.writer, rect, "Nota", text, false, "Comment"
+                    )
+                    annotation.setColor(baseColor)
+                    stamper.addAnnotation(annotation, page)
+                }
+                "freetext" -> {
+                    // Draw text directly on page content stream (most compatible)
+                    val cb = stamper.getOverContent(page)
+                    cb.saveState()
+                    val bf = BaseFont.createFont(
+                        BaseFont.HELVETICA, BaseFont.WINANSI, BaseFont.NOT_EMBEDDED
+                    )
+                    cb.setColorFill(baseColor)
+                    cb.beginText()
+                    cb.setFontAndSize(bf, 12f)
+                    cb.setTextMatrix(x, y)
+                    cb.showText(text)
+                    cb.endText()
+                    cb.restoreState()
+                }
+                "highlight" -> {
+                    // Draw semi-transparent colored rectangle on content layer
+                    val cb = stamper.getOverContent(page)
+                    cb.saveState()
+                    val gs = PdfGState()
+                    gs.setFillOpacity(0.35f)
+                    cb.setGState(gs)
+                    cb.setColorFill(baseColor)
+                    cb.rectangle(x, y, width, height)
+                    cb.fill()
+                    cb.restoreState()
+                }
+            }
+
+            stamper.close()
+            reader.close()
+            inp.close()
+            val label = when (type) {
+                "note"      -> "Nota"
+                "freetext"  -> "Texto libre"
+                else        -> "Resaltado"
+            }
+            ToolResult.Success(fileUri(context, out), "$label añadido en página $page → $outName")
+        } catch (e: Exception) {
+            ToolResult.Error("Error al anotar: ${e.message}")
+        }
+    }
+
+    // ── Insert image from gallery URI into PDF ────────────────────────────────
+
+    suspend fun insertImageFromUri(
+        context  : Context,
+        pdfUri   : Uri,
+        imageUri : Uri,
+        pageNum  : Int   = 1,
+        x        : Float = 72f,
+        y        : Float = 400f,
+        maxWidth : Float = 300f,
+        maxHeight: Float = 300f,
+        outName  : String = "con_imagen.pdf"
+    ): ToolResult = withContext(Dispatchers.IO) {
+        try {
+            // Decode image
+            val imgStream = context.contentResolver.openInputStream(imageUri)
+                ?: return@withContext ToolResult.Error("No se pudo abrir la imagen")
+            val bmp = BitmapFactory.decodeStream(imgStream)
+            imgStream.close()
+            if (bmp == null) return@withContext ToolResult.Error("Formato de imagen no soportado")
+
+            val bos = ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.JPEG, 90, bos)
+            val imgBytes = bos.toByteArray()
+
+            val pdfIn   = context.contentResolver.openInputStream(pdfUri)
+                ?: return@withContext ToolResult.Error("No se pudo abrir el PDF")
+            val reader  = PdfReader(pdfIn)
+            val total   = reader.numberOfPages
+            val page    = pageNum.coerceIn(1, total)
+            val out     = outFile(context, outName)
+            val stamper = PdfStamper(reader, FileOutputStream(out))
+
+            val image = Image.getInstance(imgBytes)
+            image.scaleToFit(maxWidth, maxHeight)
+            image.setAbsolutePosition(x, y)
+
+            val cb = stamper.getOverContent(page)
+            cb.addImage(image)
+
+            stamper.close()
+            reader.close()
+            pdfIn.close()
+            ToolResult.Success(fileUri(context, out),
+                "Imagen insertada en página $page → $outName")
+        } catch (e: Exception) {
+            ToolResult.Error("Error al insertar imagen: ${e.message}")
+        }
+    }
+
+    // ── Delete / reorder pages ────────────────────────────────────────────────
+
+    /** Deletes the given 1-based page numbers and saves to a new file. */
+    suspend fun deletePagesList(
+        context       : Context,
+        uri           : Uri,
+        pagesToDelete : Set<Int>,
+        outName       : String = "organizado.pdf"
+    ): ToolResult = withContext(Dispatchers.IO) {
+        try {
+            val inp    = context.contentResolver.openInputStream(uri)
+                ?: return@withContext ToolResult.Error("No se pudo abrir el PDF")
+            val reader = PdfReader(inp)
+            val total  = reader.numberOfPages
+            val keep   = (1..total).filter { it !in pagesToDelete }
+            if (keep.isEmpty()) return@withContext ToolResult.Error("No puedes eliminar todas las páginas")
+            val out  = outFile(context, outName)
+            val doc  = Document()
+            val fos  = FileOutputStream(out)
+            val copy = PdfCopy(doc, fos)
+            doc.open()
+            for (p in keep) copy.addPage(copy.getImportedPage(reader, p))
+            doc.close()
+            reader.close()
+            inp.close()
+            fos.close()
+            val deleted = pagesToDelete.size
+            ToolResult.Success(fileUri(context, out),
+                "$deleted página(s) eliminada(s), ${keep.size} restantes → $outName")
+        } catch (e: Exception) {
+            ToolResult.Error("Error al organizar: ${e.message}")
+        }
+    }
+
+    /** Reorders pages according to the given 1-based order list. */
+    suspend fun reorderPages(
+        context  : Context,
+        uri      : Uri,
+        newOrder : List<Int>,
+        outName  : String = "reordenado.pdf"
+    ): ToolResult = withContext(Dispatchers.IO) {
+        try {
+            val inp    = context.contentResolver.openInputStream(uri)
+                ?: return@withContext ToolResult.Error("No se pudo abrir el PDF")
+            val reader = PdfReader(inp)
+            val total  = reader.numberOfPages
+            val order  = newOrder.filter { it in 1..total }
+            if (order.isEmpty()) return@withContext ToolResult.Error("Orden inválido")
+            val out  = outFile(context, outName)
+            val doc  = Document()
+            val fos  = FileOutputStream(out)
+            val copy = PdfCopy(doc, fos)
+            doc.open()
+            for (p in order) copy.addPage(copy.getImportedPage(reader, p))
+            doc.close()
+            reader.close()
+            inp.close()
+            fos.close()
+            ToolResult.Success(fileUri(context, out), "Páginas reordenadas → $outName")
+        } catch (e: Exception) {
+            ToolResult.Error("Error al reordenar: ${e.message}")
+        }
+    }
+
     // ── Page count (quick) ────────────────────────────────────────────────────
 
     suspend fun getPageCount(context: Context, uri: Uri): Int =
@@ -479,6 +682,156 @@ object PdfTools {
                 n
             } catch (_: Exception) { 0 }
         }
+
+    // ── Gallery images (URIs) → PDF ───────────────────────────────────────────
+
+    /** Combines one or more gallery image URIs into a single PDF (one image per page). */
+    suspend fun urisToPdf(
+        context   : Context,
+        imageUris : List<Uri>,
+        outName   : String = "imagenes.pdf"
+    ): ToolResult = withContext(Dispatchers.IO) {
+        if (imageUris.isEmpty()) return@withContext ToolResult.Error("No se seleccionaron imágenes")
+        try {
+            val out  = outFile(context, outName)
+            val doc  = Document(PageSize.A4, 20f, 20f, 20f, 20f)
+            val fos  = FileOutputStream(out)
+            PdfWriter.getInstance(doc, fos)
+            doc.open()
+
+            val usable_w = PageSize.A4.width  - 40f
+            val usable_h = PageSize.A4.height - 40f
+
+            for (imgUri in imageUris) {
+                val stream = context.contentResolver.openInputStream(imgUri) ?: continue
+                val bmp    = BitmapFactory.decodeStream(stream)
+                stream.close()
+                if (bmp == null) continue
+                val baos = ByteArrayOutputStream()
+                bmp.compress(Bitmap.CompressFormat.JPEG, 88, baos)
+                val img = Image.getInstance(baos.toByteArray())
+                img.scaleToFit(usable_w, usable_h)
+                img.setAbsolutePosition(
+                    20f + (usable_w - img.scaledWidth)  / 2f,
+                    20f + (usable_h - img.scaledHeight) / 2f
+                )
+                doc.newPage()
+                doc.add(img)
+            }
+
+            doc.close()
+            fos.close()
+            ToolResult.Success(fileUri(context, out),
+                "${imageUris.size} imagen(es) → $outName")
+        } catch (e: Exception) {
+            ToolResult.Error("Error al convertir imágenes: ${e.message}")
+        }
+    }
+
+    // ── Redact / Censure areas ────────────────────────────────────────────────
+
+    data class RedactArea(
+        val pageNum : Int,
+        val x       : Float,
+        val y       : Float,
+        val w       : Float,
+        val h       : Float,
+        val label   : String = "CONFIDENCIAL"
+    )
+
+    /** Draws filled black rectangles over sensitive areas, optionally with a label. */
+    suspend fun redactAreas(
+        context : Context,
+        uri     : Uri,
+        areas   : List<RedactArea>,
+        outName : String = "redactado.pdf"
+    ): ToolResult = withContext(Dispatchers.IO) {
+        if (areas.isEmpty()) return@withContext ToolResult.Error("No hay áreas para redactar")
+        try {
+            val inp     = context.contentResolver.openInputStream(uri)
+                ?: return@withContext ToolResult.Error("No se pudo abrir el PDF")
+            val reader  = PdfReader(inp)
+            val total   = reader.numberOfPages
+            val out     = outFile(context, outName)
+            val stamper = PdfStamper(reader, FileOutputStream(out))
+
+            val bf = BaseFont.createFont(BaseFont.HELVETICA_BOLD, BaseFont.WINANSI, BaseFont.NOT_EMBEDDED)
+
+            for (area in areas) {
+                val page = area.pageNum.coerceIn(1, total)
+                val cb = stamper.getOverContent(page)
+                cb.saveState()
+                // Black rectangle
+                cb.setColorFill(BaseColor.BLACK)
+                cb.rectangle(area.x, area.y, area.w, area.h)
+                cb.fill()
+                // White label centered in the rectangle
+                if (area.label.isNotBlank()) {
+                    cb.setColorFill(BaseColor.WHITE)
+                    cb.beginText()
+                    cb.setFontAndSize(bf, 8f)
+                    val lx = area.x + (area.w / 2f) - (area.label.length * 2.4f)
+                    val ly = area.y + (area.h / 2f) - 4f
+                    cb.setTextMatrix(lx, ly)
+                    cb.showText(area.label)
+                    cb.endText()
+                }
+                cb.restoreState()
+            }
+
+            stamper.close()
+            reader.close()
+            inp.close()
+            ToolResult.Success(fileUri(context, out),
+                "${areas.size} área(s) redactada(s) → $outName")
+        } catch (e: Exception) {
+            ToolResult.Error("Error al redactar: ${e.message}")
+        }
+    }
+
+    // ── WYSIWYG: page dimensions ──────────────────────────────────────────────
+
+    data class PdfPageInfo(val widthPt: Float, val heightPt: Float)
+
+    suspend fun getPdfPageInfo(context: Context, uri: Uri, pageNum: Int): PdfPageInfo =
+        withContext(Dispatchers.IO) {
+            try {
+                val inp    = context.contentResolver.openInputStream(uri) ?: return@withContext PdfPageInfo(595f, 842f)
+                val reader = PdfReader(inp)
+                val rect   = reader.getPageSize(pageNum)
+                reader.close(); inp.close()
+                PdfPageInfo(rect.width, rect.height)
+            } catch (_: Exception) { PdfPageInfo(595f, 842f) }
+        }
+
+    // ── In-place editor: text block data ─────────────────────────────────────
+
+    data class PdfTextBlock(
+        val text     : String,
+        val x        : Float,
+        val y        : Float,
+        val width    : Float,
+        val height   : Float,
+        val fontSize : Float
+    )
+
+    /** Returns detected text blocks for in-place editing. */
+    suspend fun extractTextBlocks(
+        context : Context,
+        uri     : Uri,
+        pageNum : Int
+    ): List<PdfTextBlock> = withContext(Dispatchers.IO) { emptyList() }
+
+    /** Applies in-place text edits to a PDF page. */
+    suspend fun applyWysiwygEdits(
+        context : Context,
+        uri     : Uri,
+        edits   : List<Pair<PdfTextBlock, String>>,
+        pageNum : Int,
+        outName : String = "editado.pdf"
+    ): ToolResult = withContext(Dispatchers.IO) {
+        ToolResult.Error("Edición de texto no disponible en esta compilación")
+    }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 

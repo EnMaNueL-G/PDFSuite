@@ -4,30 +4,37 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-// ── Brand colors ──────────────────────────────────────────────────────────────
-val PdfRed       = Color(0xFFD32F2F)    // PDF red — primary
-val PdfRedDark   = Color(0xFFB71C1C)
-val PdfRedLight  = Color(0xFFEF9A9A)
-val AccentBlue   = Color(0xFF1565C0)    // secondary accent
+// ── OptiSuite brand colors — deep teal, not the usual PDF red/blue ────────────
+val BrandTeal       = Color(0xFF006D77)   // main brand
+val BrandTealDark   = Color(0xFF00474F)   // dark variant
+val BrandTealLight  = Color(0xFFB2DFDB)   // light / container
+val BrandTealOnCont = Color(0xFF00363D)
+
+// Keep PdfRed as alias so every file that references it uses the new brand color
+val PdfRed       = BrandTeal
+val PdfRedDark   = BrandTealDark
+val PdfRedLight  = BrandTealLight
+
+val AccentAmber  = Color(0xFFFF8F00)      // highlight / secondary accent
 val SurfaceLight = Color(0xFFFFFFFF)
-val BgLight      = Color(0xFFF5F5F5)
-val SurfaceVar   = Color(0xFFFAFAFA)
-val OnSurface    = Color(0xFF212121)
-val OnSurface2   = Color(0xFF757575)
-val DividerColor = Color(0xFFE0E0E0)
+val BgLight      = Color(0xFFF4F6F5)      // slightly warmer than pure grey
+val SurfaceVar   = Color(0xFFF8FAFA)
+val OnSurface    = Color(0xFF1A2B2C)      // very dark teal-black
+val OnSurface2   = Color(0xFF5E7273)
+val DividerColor = Color(0xFFDDE5E5)
 
 // Dark reader colors
-val DarkBg      = Color(0xFF121212)
-val DarkSurface = Color(0xFF1E1E1E)
-val DarkOnSurf  = Color(0xFFEEEEEE)
+val DarkBg      = Color(0xFF0D1A1B)
+val DarkSurface = Color(0xFF162122)
+val DarkOnSurf  = Color(0xFFDFECED)
 
-// ── Light color scheme (default) ──────────────────────────────────────────────
+// ── Light color scheme ────────────────────────────────────────────────────────
 private val LightColors = lightColorScheme(
-    primary            = PdfRed,
+    primary            = BrandTeal,
     onPrimary          = Color.White,
-    primaryContainer   = Color(0xFFFFEBEE),
-    onPrimaryContainer = PdfRedDark,
-    secondary          = AccentBlue,
+    primaryContainer   = BrandTealLight,
+    onPrimaryContainer = BrandTealOnCont,
+    secondary          = AccentAmber,
     onSecondary        = Color.White,
     background         = BgLight,
     onBackground       = OnSurface,
@@ -36,19 +43,19 @@ private val LightColors = lightColorScheme(
     surfaceVariant     = SurfaceVar,
     onSurfaceVariant   = OnSurface2,
     outline            = DividerColor,
-    error              = Color(0xFFB00020),
+    error              = Color(0xFFC62828),
 )
 
-// ── Dark color scheme (for reader) ────────────────────────────────────────────
+// ── Dark color scheme (for reader night mode) ─────────────────────────────────
 private val DarkColors = darkColorScheme(
-    primary            = PdfRedLight,
-    onPrimary          = Color(0xFF690005),
+    primary            = BrandTealLight,
+    onPrimary          = BrandTealDark,
     background         = DarkBg,
     onBackground       = DarkOnSurf,
     surface            = DarkSurface,
     onSurface          = DarkOnSurf,
-    surfaceVariant     = Color(0xFF2C2C2C),
-    onSurfaceVariant   = Color(0xFFBBBBBB),
+    surfaceVariant     = Color(0xFF1E2E2F),
+    onSurfaceVariant   = Color(0xFFB0C8CA),
 )
 
 @Composable
@@ -62,3 +69,10 @@ fun PDFSuiteTheme(
         content     = content
     )
 }
+
+// Alias so call sites don't need updating
+@Composable
+fun OptiSuiteTheme(
+    darkTheme: Boolean = false,
+    content  : @Composable () -> Unit
+) = PDFSuiteTheme(darkTheme, content)

@@ -11,8 +11,8 @@ android {
         applicationId  = "com.enmanuelgil.pdfsuite"
         minSdk         = 26
         targetSdk      = 34
-        versionCode    = 3
-        versionName    = "1.1.1"
+        versionCode    = 7
+        versionName    = "1.5.0"
 
         vectorDrawables.useSupportLibrary = true
     }
@@ -79,6 +79,9 @@ dependencies {
 
     // ML Kit Document Scanner via GMS (camera → PDF, auto perspective correction)
     implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0-beta1")
+
+    // Coil — async image loading for InsertImageScreen preview
+    implementation("io.coil-kt:coil-compose:2.5.0")
 
     debugImplementation(libs.compose.ui.tooling)
 }

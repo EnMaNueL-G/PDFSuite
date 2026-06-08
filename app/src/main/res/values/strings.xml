@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PDFSuite</string>
+    <string name="app_name">OptiSuite</string>
     <string name="tab_home">Inicio</string>
     <string name="tab_tools">Herramientas</string>
     <string name="tab_about">Acerca de</string>

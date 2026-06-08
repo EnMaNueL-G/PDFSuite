@@ -1,6 +1,7 @@
 package com.enmanuelgil.pdfsuite.ui.screens
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -59,7 +60,14 @@ fun AboutScreen() {
                     Text("PDF", color = Color.White, fontWeight = FontWeight.Black, fontSize = 22.sp)
                 }
                 Text("PDFSuite", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 26.sp)
-                Text("v1.0.0", color = Color.White.copy(0.75f), fontSize = 13.sp)
+                Text(
+                    "v${
+                        try { context.packageManager
+                            .getPackageInfo(context.packageName, 0).versionName }
+                        catch (e: PackageManager.NameNotFoundException) { "?" }
+                    }",
+                    color = Color.White.copy(0.75f), fontSize = 13.sp
+                )
                 Text("Parte del ecosistema OptiSuite", color = Color.White.copy(0.8f), fontSize = 12.sp)
             }
         }

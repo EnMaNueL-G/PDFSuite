@@ -234,7 +234,7 @@ fun SignaturePadScreen(
 }
 
 /** Renders all drawn strokes to a transparent-background Bitmap */
-private fun renderSignature(
+internal fun renderSignature(
     lines  : List<SignatureLine>,
     current: List<Offset>,
     color  : Color
