@@ -11,8 +11,8 @@ android {
         applicationId  = "com.enmanuelgil.pdfsuite"
         minSdk         = 26
         targetSdk      = 34
-        versionCode    = 1
-        versionName    = "1.0.0"
+        versionCode    = 2
+        versionName    = "1.1.0"
 
         vectorDrawables.useSupportLibrary = true
     }
@@ -76,6 +76,9 @@ dependencies {
 
     // PDF manipulation — iTextG (iText 5 for Android, AGPL)
     implementation("com.itextpdf:itextg:5.5.10")
+
+    // ML Kit Document Scanner via GMS (camera → PDF, auto perspective correction)
+    implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0-beta1")
 
     debugImplementation(libs.compose.ui.tooling)
 }
