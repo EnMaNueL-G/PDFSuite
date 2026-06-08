@@ -95,10 +95,22 @@ fun ToolsScreen(vm: ToolsViewModel = viewModel()) {
     var pendingUri         by remember { mutableStateOf<Uri?>(null) }
     var pendingPageCount   by remember { mutableStateOf(1) }
     var passMode           by remember { mutableStateOf("protect") }  // "protect" or "remove"
+    var waitingForSplit    by remember { mutableStateOf(false) }
+    var waitingForAddText  by remember { mutableStateOf(false) }
 
-    // Sync page count from VM
+    // Sync page count from VM — show pending dialogs once count is ready
     LaunchedEffect(pageCount) {
-        if (pageCount > 0) pendingPageCount = pageCount
+        if (pageCount > 0) {
+            pendingPageCount = pageCount
+            if (waitingForSplit) {
+                waitingForSplit  = false
+                showSplitDialog  = true
+            }
+            if (waitingForAddText) {
+                waitingForAddText = false
+                pendingUri?.let { overlay = ToolOverlay.AddText(it, pageCount) }
+            }
+        }
     }
 
     // Result dialog
@@ -264,10 +276,10 @@ fun ToolsScreen(vm: ToolsViewModel = viewModel()) {
                                             showRotateDialog = true
                                         }
                                         "split"    -> {
-                                            // Load page count then show dialog
+                                            // Load page count; dialog shown by LaunchedEffect
+                                            pendingPageCount = 1
+                                            waitingForSplit  = true
                                             vm.loadPageCount(context, uri)
-                                            showSplitDialog = true
-                                            pendingPageCount = 999 // will be updated
                                         }
                                         "password" -> {
                                             passMode = "both"
@@ -278,8 +290,9 @@ fun ToolsScreen(vm: ToolsViewModel = viewModel()) {
                                         "text"     -> overlay = ToolOverlay.Text(uri)
                                         "metadata" -> overlay = ToolOverlay.Metadata(uri)
                                         "addtext"  -> {
+                                            // Load page count; overlay shown by LaunchedEffect
+                                            waitingForAddText = true
                                             vm.loadPageCount(context, uri)
-                                            overlay = ToolOverlay.AddText(uri, pendingPageCount.coerceAtLeast(1))
                                         }
                                         else -> {}
                                     }
