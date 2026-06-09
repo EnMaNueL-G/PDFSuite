@@ -73,15 +73,18 @@ class ToolsViewModel : ViewModel() {
     ) = run { PdfTools.addTextOverlay(context, uri, text, pageNum, x, y, fontSize, colorHex) }
 
     fun stampSignature(
-        context : Context,
-        uri     : Uri,
-        bitmap  : Bitmap,
-        pageNum : Int,
-        x       : Float,
-        y       : Float,
-        w       : Float,
-        h       : Float
-    ) = run { PdfTools.stampSignature(context, uri, bitmap, pageNum, x, y, w, h) }
+        context    : Context,
+        uri        : Uri,
+        bitmap     : Bitmap,
+        pageNum    : Int,
+        x          : Float,
+        y          : Float,
+        w          : Float,
+        h          : Float,
+        overwrite  : Boolean = true,
+        customName : String  = ""
+    ) = run { PdfTools.stampSignature(context, uri, bitmap, pageNum, x, y, w, h,
+            overwrite = overwrite, customName = customName) }
 
     fun fillFormFields(context: Context, uri: Uri, fields: Map<String, String>) =
         run { PdfTools.fillFormFields(context, uri, fields) }
@@ -127,17 +130,20 @@ class ToolsViewModel : ViewModel() {
     // ── New tools v1.2 ────────────────────────────────────────────────────────
 
     fun addAnnotation(
-        context  : Context,
-        uri      : Uri,
-        type     : String,
-        text     : String,
-        pageNum  : Int,
-        x        : Float,
-        y        : Float,
-        width    : Float,
-        height   : Float,
-        colorHex : Int
-    ) = run { PdfTools.addAnnotation(context, uri, type, text, pageNum, x, y, width, height, colorHex) }
+        context    : Context,
+        uri        : Uri,
+        type       : String,
+        text       : String,
+        pageNum    : Int,
+        x          : Float,
+        y          : Float,
+        width      : Float,
+        height     : Float,
+        colorHex   : Int,
+        overwrite  : Boolean = true,
+        customName : String  = ""
+    ) = run { PdfTools.addAnnotation(context, uri, type, text, pageNum, x, y, width, height, colorHex,
+            overwrite = overwrite, customName = customName) }
 
     fun insertImageFromUri(
         context  : Context,
@@ -161,17 +167,26 @@ class ToolsViewModel : ViewModel() {
     fun imagesToPdf(context: Context, imageUris: List<Uri>, outName: String = "imagenes.pdf") =
         run { PdfTools.urisToPdf(context, imageUris, outName) }
 
-    fun redactAreas(context: Context, uri: Uri, areas: List<PdfTools.RedactArea>) =
-        run { PdfTools.redactAreas(context, uri, areas) }
+    fun redactAreas(
+        context    : Context,
+        uri        : Uri,
+        areas      : List<PdfTools.RedactArea>,
+        overwrite  : Boolean = true,
+        customName : String  = ""
+    ) = run { PdfTools.redactAreas(context, uri, areas,
+            overwrite = overwrite, customName = customName) }
 
     // ── WYSIWYG text editing ──────────────────────────────────────────────────
 
     fun applyWysiwygEdits(
-        context : Context,
-        uri     : Uri,
-        edits   : List<Pair<PdfTools.PdfTextBlock, String>>,
-        pageNum : Int
-    ) = run { PdfTools.applyWysiwygEdits(context, uri, edits, pageNum) }
+        context    : Context,
+        uri        : Uri,
+        edits      : List<Pair<PdfTools.PdfTextBlock, String>>,
+        pageNum    : Int,
+        overwrite  : Boolean = true,
+        customName : String  = ""
+    ) = run { PdfTools.applyWysiwygEdits(context, uri, edits, pageNum,
+            overwrite = overwrite, customName = customName) }
 
     suspend fun extractTextBlocks(context: Context, uri: Uri, pageNum: Int) =
         PdfTools.extractTextBlocks(context, uri, pageNum)

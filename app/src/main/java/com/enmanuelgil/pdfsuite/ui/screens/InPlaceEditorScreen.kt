@@ -106,6 +106,8 @@ fun InPlaceEditorScreen(
     var containerWidthPx by remember { mutableStateOf(0f) }
     var isLoading    by remember { mutableStateOf(true) }
     var isSaving     by remember { mutableStateOf(false) }
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var customSaveName by remember { mutableStateOf("") }
     var showSignPad  by remember { mutableStateOf(false) }
     // Redact drag
     var redactStart  by remember { mutableStateOf<Offset?>(null) }
@@ -164,6 +166,84 @@ fun InPlaceEditorScreen(
         if (mode == InPlaceMode.TEXT)
             textBlocks = toolsVm.extractTextBlocks(context, uri, currentPage)
         isLoading    = false
+    }
+
+    // ── Save dialog — Sobrescribir / Guardar como ─────────────────────────────
+    if (showSaveDialog) {
+        var saveAsMode    by remember { mutableStateOf(false) }
+        var nameFieldText by remember { mutableStateOf(customSaveName) }
+        AlertDialog(
+            onDismissRequest = { showSaveDialog = false; saveAsMode = false },
+            title = { Text("Guardar documento", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (!saveAsMode) {
+                        // Choice row
+                        Text("¿Cómo deseas guardar los cambios?",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        // Name input
+                        Text("Nombre del nuevo archivo:",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedTextField(
+                            value         = nameFieldText,
+                            onValueChange = { nameFieldText = it },
+                            singleLine    = true,
+                            modifier      = Modifier.fillMaxWidth(),
+                            colors        = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PdfRed)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                if (!saveAsMode) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Sobrescribir
+                        Button(
+                            onClick = {
+                                showSaveDialog = false
+                                isSaving = true
+                                scope.launch {
+                                    saveAll(context, uri, currentPage, textBlocks,
+                                        textEdits, overlays, toolsVm, overwrite = true)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = PdfRed)
+                        ) { Text("Sobrescribir") }
+                        // Guardar como
+                        OutlinedButton(
+                            onClick = { saveAsMode = true; nameFieldText = customSaveName }
+                        ) { Text("Guardar como…") }
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            showSaveDialog = false; saveAsMode = false
+                            customSaveName = nameFieldText.trim().let {
+                                if (it.endsWith(".pdf", ignoreCase = true)) it else "$it.pdf"
+                            }
+                            isSaving = true
+                            scope.launch {
+                                saveAll(context, uri, currentPage, textBlocks,
+                                    textEdits, overlays, toolsVm,
+                                    overwrite = false, customName = customSaveName)
+                            }
+                        },
+                        enabled = nameFieldText.isNotBlank(),
+                        colors  = ButtonDefaults.buttonColors(containerColor = PdfRed)
+                    ) { Text("Guardar") }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    if (saveAsMode) saveAsMode = false
+                    else showSaveDialog = false
+                }) { Text(if (saveAsMode) "Atrás" else "Cancelar") }
+            }
+        )
     }
 
     // ── Save result dialog ────────────────────────────────────────────────────
@@ -295,8 +375,14 @@ fun InPlaceEditorScreen(
                     // Save
                     Button(
                         onClick = {
-                            focusManager.clearFocus(); activeTextIdx = null; isSaving = true
-                            scope.launch { saveAll(context, uri, currentPage, textBlocks, textEdits, overlays, toolsVm) }
+                            focusManager.clearFocus(); activeTextIdx = null
+                            // Derive a default name from URI
+                            val seg = uri.lastPathSegment ?: "documento"
+                            customSaveName = seg.substringAfterLast('/').let {
+                                if (it.endsWith(".pdf", ignoreCase = true)) it
+                                else "editado_$it.pdf"
+                            }
+                            showSaveDialog = true
                         },
                         enabled  = hasChanges && !isLoading && !isSaving,
                         colors   = ButtonDefaults.buttonColors(containerColor = PdfRed),
@@ -373,15 +459,31 @@ fun InPlaceEditorScreen(
                                                 val s = redactStart; val e = redactCurrent
                                                 if (s != null && e != null && pageInfo != null) {
                                                     val sc = docScale
-                                                    val x1 = minOf(s.x, e.x) / sc
-                                                    val x2 = maxOf(s.x, e.x) / sc
-                                                    val y1Bot = pageHeightPt - maxOf(s.y, e.y) / sc
-                                                    val y1Top = pageHeightPt - minOf(s.y, e.y) / sc
+                                                    val dragX1   = minOf(s.x, e.x) / sc
+                                                    val dragX2   = maxOf(s.x, e.x) / sc
+                                                    val dragYBot = pageHeightPt - maxOf(s.y, e.y) / sc
+                                                    val dragYTop = pageHeightPt - minOf(s.y, e.y) / sc
+
+                                                    // Snap to all text blocks that overlap the drag rect
+                                                    val matched = textBlocks.filter { b ->
+                                                        b.x < dragX2 && b.x + b.width > dragX1 &&
+                                                        b.y < dragYTop && b.y + b.height > dragYBot
+                                                    }
+                                                    val (rx1, ry1, rw, rh) = if (matched.isNotEmpty()) {
+                                                        val mx1 = matched.minOf { it.x }
+                                                        val my1 = matched.minOf { it.y }
+                                                        val mx2 = matched.maxOf { it.x + it.width }
+                                                        val my2 = matched.maxOf { it.y + it.height }
+                                                        listOf(mx1, my1, mx2 - mx1, my2 - my1)
+                                                    } else {
+                                                        listOf(dragX1, dragYBot,
+                                                            (dragX2 - dragX1).coerceAtLeast(10f),
+                                                            (dragYTop - dragYBot).coerceAtLeast(8f))
+                                                    }
                                                     overlays.add(PlacedOverlay(
                                                         kind     = OverlayKind.HIGHLIGHT,
-                                                        xPt      = x1, yPt = y1Bot,
-                                                        wPt      = (x2 - x1).coerceAtLeast(10f),
-                                                        hPt      = (y1Top - y1Bot).coerceAtLeast(8f),
+                                                        xPt      = rx1, yPt = ry1,
+                                                        wPt      = rw, hPt = rh,
                                                         colorInt = 0x80FFEB3B.toInt()
                                                     ))
                                                 }
@@ -602,21 +704,56 @@ fun InPlaceEditorScreen(
                                                     detectDragGestures { _, drag ->
                                                         val idx2 = overlays.indexOfFirst { it.id == ov.id }
                                                         if (idx2 >= 0) overlays[idx2] = overlays[idx2].copy(
-                                                            xPt = overlays[idx2].xPt + drag.x / docScale,
-                                                            yPt = overlays[idx2].yPt - drag.y / docScale
+                                                            xPt = (overlays[idx2].xPt + drag.x / docScale)
+                                                                .coerceIn(0f, pageWidthPt - ov.wPt),
+                                                            yPt = (overlays[idx2].yPt - drag.y / docScale)
+                                                                .coerceIn(0f, pageHeightPt - ov.hPt)
                                                         )
                                                     }
                                                 }
                                             ) {
                                                 Text(ov.text, fontSize = (8 * docScale / density.density)
                                                     .coerceIn(7f, 12f).sp,
-                                                    color = Color(0xFF5D4037), maxLines = 3)
+                                                    color = Color(0xFF5D4037), maxLines = 5,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Clip)
                                             }
-                                            if (sel) Box(Modifier.align(Alignment.TopEnd).size(16.dp)
-                                                .background(Color(0xFF757575), RoundedCornerShape(8.dp))
-                                                .clickable { overlays.removeAll { it.id == ov.id }; selectedId = null }
-                                            ) { Icon(Icons.Default.Close, null,
-                                                Modifier.size(10.dp).align(Alignment.Center), tint = Color.White) }
+                                            // Resize handle (bottom-right)
+                                            if (sel) {
+                                                Box(Modifier
+                                                    .align(Alignment.BottomEnd)
+                                                    .size(18.dp)
+                                                    .background(Color(0xFFF9A825), RoundedCornerShape(4.dp))
+                                                    .pointerInput(ov.id) {
+                                                        detectDragGestures { _, drag ->
+                                                            val dw = drag.x / docScale
+                                                            val dh = drag.y / docScale
+                                                            val idx2 = overlays.indexOfFirst { it.id == ov.id }
+                                                            if (idx2 >= 0) overlays[idx2] = overlays[idx2].copy(
+                                                                // min 40pt wide x 20pt tall, max page size
+                                                                wPt = (overlays[idx2].wPt + dw)
+                                                                    .coerceIn(40f, pageWidthPt),
+                                                                hPt = (overlays[idx2].hPt + dh)
+                                                                    .coerceIn(20f, pageHeightPt)
+                                                            )
+                                                        }
+                                                    }
+                                                ) {
+                                                    Icon(Icons.Default.OpenWith, null,
+                                                        Modifier.size(12.dp).align(Alignment.Center),
+                                                        tint = Color.White)
+                                                }
+                                                // Delete handle
+                                                Box(Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .size(18.dp)
+                                                    .background(Color(0xFFB71C1C), RoundedCornerShape(9.dp))
+                                                    .clickable { overlays.removeAll { it.id == ov.id }; selectedId = null }
+                                                ) {
+                                                    Icon(Icons.Default.Close, null,
+                                                        Modifier.size(12.dp).align(Alignment.Center),
+                                                        tint = Color.White)
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -905,14 +1042,17 @@ private suspend fun saveAll(
     textBlocks : List<PdfTools.PdfTextBlock>,
     textEdits  : Map<Int, String>,
     overlays   : List<PlacedOverlay>,
-    toolsVm    : ToolsViewModel
+    toolsVm    : ToolsViewModel,
+    overwrite  : Boolean = true,
+    customName : String  = ""
 ) {
     // 1. Text edits
     val editList = textEdits
         .filter { (idx, t) -> idx < textBlocks.size && t != textBlocks[idx].text }
         .map { (idx, t) -> textBlocks[idx] to t }
     if (editList.isNotEmpty()) {
-        toolsVm.applyWysiwygEdits(context, uri, editList, pageNum)
+        toolsVm.applyWysiwygEdits(context, uri, editList, pageNum,
+            overwrite = overwrite, customName = customName)
         return   // result flows back via vmResult; UI handles chaining
     }
 
@@ -922,7 +1062,8 @@ private suspend fun saveAll(
         val first = bitmapOverlays.first()
         val bmp   = first.bitmap ?: return
         toolsVm.stampSignature(context, uri, bmp, pageNum,
-            first.xPt, first.yPt, first.wPt, first.hPt)
+            first.xPt, first.yPt, first.wPt, first.hPt,
+            overwrite = overwrite, customName = customName)
         return
     }
 
@@ -931,7 +1072,7 @@ private suspend fun saveAll(
     if (redacts.isNotEmpty()) {
         toolsVm.redactAreas(context, uri, redacts.map {
             PdfTools.RedactArea(pageNum, it.xPt, it.yPt, it.xPt + it.wPt, it.yPt + it.hPt)
-        })
+        }, overwrite = overwrite, customName = customName)
         return
     }
 
@@ -940,7 +1081,8 @@ private suspend fun saveAll(
     if (annots.isNotEmpty()) {
         val a = annots.first()
         toolsVm.addAnnotation(context, uri, "comment", a.text, pageNum,
-            a.xPt, a.yPt, a.wPt, a.hPt, 0xFF006D77.toInt())
+            a.xPt, a.yPt, a.wPt, a.hPt, 0xFF006D77.toInt(),
+            overwrite = overwrite, customName = customName)
         return
     }
 
@@ -949,7 +1091,8 @@ private suspend fun saveAll(
     if (highlights.isNotEmpty()) {
         val h = highlights.first()
         toolsVm.addAnnotation(context, uri, "highlight", "", pageNum,
-            h.xPt, h.yPt, h.wPt, h.hPt, 0x80FFEB3B.toInt())
+            h.xPt, h.yPt, h.wPt, h.hPt, 0x80FFEB3B.toInt(),
+            overwrite = overwrite, customName = customName)
     }
 }
 

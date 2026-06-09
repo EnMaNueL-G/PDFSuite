@@ -27,6 +27,55 @@ object PdfTools {
     fun fileUri(context: Context, file: File): Uri =
         FileProvider.getUriForFile(context, "com.enmanuelgil.pdfsuite.provider", file)
 
+    /**
+     * Resolves the output [File] for a save operation.
+     *
+     * @param overwrite  true  → overwrite the source URI in-place (copy to filesDir, then copy back)
+     *                   false → save as new file with [customName] into Downloads/OptiSuite/
+     * @param customName used only when [overwrite] is false
+     * @param fallback   default filename when overwrite=true (derived from source URI)
+     */
+    private fun resolveOutFile(
+        context    : Context,
+        overwrite  : Boolean,
+        customName : String,
+        fallback   : String
+    ): File {
+        return if (!overwrite && customName.isNotBlank()) {
+            // Save to Downloads/OptiSuite/
+            val dir = File(
+                android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOWNLOADS),
+                "OptiSuite"
+            ).also { it.mkdirs() }
+            val name = customName.let {
+                if (it.endsWith(".pdf", ignoreCase = true)) it else "$it.pdf" }
+            File(dir, name)
+        } else {
+            // Default: filesDir with fallback name
+            outFile(context, fallback)
+        }
+    }
+
+    /**
+     * After saving to [outFile], copy back over the original [uri] if overwrite=true
+     * and the uri points to a file:// or content:// backed by our own storage.
+     */
+    private fun maybeCopyBack(
+        context   : Context,
+        sourceUri : Uri,
+        outFile   : File,
+        overwrite : Boolean
+    ) {
+        if (!overwrite) return
+        try {
+            val os = context.contentResolver.openOutputStream(sourceUri, "wt") ?: return
+            os.use { outFile.inputStream().copyTo(it) }
+        } catch (_: Exception) {
+            // If we can't write back (e.g. external URI), the saved file in filesDir is still valid
+        }
+    }
+
     // ── Merge PDFs ────────────────────────────────────────────────────────────
 
     suspend fun mergePdfs(
@@ -136,18 +185,32 @@ object PdfTools {
                 ?.use { it.statSize } ?: 0L
             val reader  = PdfReader(inp)
             reader.removeUnusedObjects()
-            val out     = outFile(context, outName)
-            val stamper = PdfStamper(reader, FileOutputStream(out), ' ', true)
+
+            // Save to Downloads/OptiSuite/ for easy user access
+            val downloadsDir = File(
+                android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOWNLOADS),
+                "OptiSuite"
+            ).also { it.mkdirs() }
+            val out = File(downloadsDir, outName)
+            // Fallback to filesDir if no external storage
+            val outActual = if (downloadsDir.exists()) out else outFile(context, outName)
+
+            val stamper = PdfStamper(reader, FileOutputStream(outActual), ' ', true)
             stamper.setFullCompression()
-            stamper.close()
-            reader.close()
-            inp.close()
-            val afterBytes = out.length()
+            stamper.close(); reader.close(); inp.close()
+
+            val afterBytes = outActual.length()
             val saved = ((beforeBytes - afterBytes) * 100.0 / beforeBytes.coerceAtLeast(1)).toInt()
-            ToolResult.Success(
-                fileUri(context, out),
-                "Comprimido: ${fmtSize(beforeBytes)} → ${fmtSize(afterBytes)} (–$saved%) → $outName"
-            )
+            val loc   = if (outActual.absolutePath.contains("Download", ignoreCase = true))
+                "Descargas/OptiSuite/$outName" else outActual.absolutePath
+            val msg = buildString {
+                append("✓ Reducción: $saved%\n")
+                append("  Antes: ${fmtSize(beforeBytes)}\n")
+                append("  Después: ${fmtSize(afterBytes)}\n")
+                append("  Ubicación: $loc")
+            }
+            ToolResult.Success(fileUri(context, outActual), msg)
         } catch (e: Exception) {
             ToolResult.Error("Error al comprimir: ${e.message}")
         }
@@ -276,15 +339,17 @@ object PdfTools {
     // ── Stamp signature (bitmap) ──────────────────────────────────────────────
 
     suspend fun stampSignature(
-        context  : Context,
-        uri      : Uri,
-        bitmap   : Bitmap,
-        pageNum  : Int = 1,
-        x        : Float = 72f,
-        y        : Float = 72f,
-        width    : Float = 200f,
-        height   : Float = 80f,
-        outName  : String = "firmado.pdf"
+        context    : Context,
+        uri        : Uri,
+        bitmap     : Bitmap,
+        pageNum    : Int = 1,
+        x          : Float = 72f,
+        y          : Float = 72f,
+        width      : Float = 200f,
+        height     : Float = 80f,
+        outName    : String = "firmado.pdf",
+        overwrite  : Boolean = true,
+        customName : String  = ""
     ): ToolResult = withContext(Dispatchers.IO) {
         try {
             val inp     = context.contentResolver.openInputStream(uri)
@@ -292,25 +357,23 @@ object PdfTools {
             val reader  = PdfReader(inp)
             val total   = reader.numberOfPages
             val page    = pageNum.coerceIn(1, total)
-            val out     = outFile(context, outName)
+            val fallback = uri.lastPathSegment?.substringAfterLast('/')?.let {
+                if (it.endsWith(".pdf", ignoreCase = true)) it else "$it.pdf" } ?: outName
+            val out     = resolveOutFile(context, overwrite, customName, fallback)
             val stamper = PdfStamper(reader, FileOutputStream(out))
 
-            // Convert bitmap to PNG bytes for iTextG Image
             val bos = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, bos)
-            val imgBytes = bos.toByteArray()
-
-            val image = Image.getInstance(imgBytes)
+            val image = Image.getInstance(bos.toByteArray())
             image.scaleToFit(width, height)
             image.setAbsolutePosition(x, y)
 
-            val cb = stamper.getOverContent(page)
-            cb.addImage(image)
+            stamper.getOverContent(page).addImage(image)
+            stamper.close(); reader.close(); inp.close()
 
-            stamper.close()
-            reader.close()
-            inp.close()
-            ToolResult.Success(fileUri(context, out), "Firma añadida en página $page → $outName")
+            maybeCopyBack(context, uri, out, overwrite)
+            val loc = if (!overwrite) "Descargas/OptiSuite/${out.name}" else out.name
+            ToolResult.Success(fileUri(context, out), "Firma añadida en página $page\nGuardado: $loc")
         } catch (e: Exception) {
             ToolResult.Error("Error al firmar: ${e.message}")
         }
@@ -475,17 +538,19 @@ object PdfTools {
      *        "highlight" → semi-transparent colored rectangle
      */
     suspend fun addAnnotation(
-        context  : Context,
-        uri      : Uri,
-        type     : String,   // "note" | "freetext" | "highlight"
-        text     : String,
-        pageNum  : Int   = 1,
-        x        : Float = 72f,
-        y        : Float = 500f,
-        width    : Float = 200f,
-        height   : Float = 80f,
-        colorHex : Int   = 0xFFFF00,   // yellow default
-        outName  : String = "anotado.pdf"
+        context    : Context,
+        uri        : Uri,
+        type       : String,   // "note" | "freetext" | "highlight" | "comment"
+        text       : String,
+        pageNum    : Int   = 1,
+        x          : Float = 72f,
+        y          : Float = 500f,
+        width      : Float = 200f,
+        height     : Float = 80f,
+        colorHex   : Int   = 0xFFFF00,   // yellow default
+        outName    : String = "anotado.pdf",
+        overwrite  : Boolean = true,
+        customName : String  = ""
     ): ToolResult = withContext(Dispatchers.IO) {
         try {
             val inp     = context.contentResolver.openInputStream(uri)
@@ -493,7 +558,9 @@ object PdfTools {
             val reader  = PdfReader(inp)
             val total   = reader.numberOfPages
             val page    = pageNum.coerceIn(1, total)
-            val out     = outFile(context, outName)
+            val fallback = uri.lastPathSegment?.substringAfterLast('/')?.let {
+                if (it.endsWith(".pdf", ignoreCase = true)) it else "$it.pdf" } ?: outName
+            val out     = resolveOutFile(context, overwrite, customName, fallback)
             val stamper = PdfStamper(reader, FileOutputStream(out))
 
             val r = ((colorHex shr 16) and 0xFF) / 255f
@@ -541,15 +608,15 @@ object PdfTools {
                 }
             }
 
-            stamper.close()
-            reader.close()
-            inp.close()
+            stamper.close(); reader.close(); inp.close()
+            maybeCopyBack(context, uri, out, overwrite)
             val label = when (type) {
-                "note"      -> "Nota"
-                "freetext"  -> "Texto libre"
-                else        -> "Resaltado"
+                "note", "comment" -> "Nota"
+                "freetext"        -> "Texto libre"
+                else              -> "Resaltado"
             }
-            ToolResult.Success(fileUri(context, out), "$label añadido en página $page → $outName")
+            val loc = if (!overwrite) "Descargas/OptiSuite/${out.name}" else out.name
+            ToolResult.Success(fileUri(context, out), "$label añadido en página $page\nGuardado: $loc")
         } catch (e: Exception) {
             ToolResult.Error("Error al anotar: ${e.message}")
         }
@@ -741,10 +808,12 @@ object PdfTools {
 
     /** Draws filled black rectangles over sensitive areas, optionally with a label. */
     suspend fun redactAreas(
-        context : Context,
-        uri     : Uri,
-        areas   : List<RedactArea>,
-        outName : String = "redactado.pdf"
+        context    : Context,
+        uri        : Uri,
+        areas      : List<RedactArea>,
+        outName    : String = "redactado.pdf",
+        overwrite  : Boolean = true,
+        customName : String  = ""
     ): ToolResult = withContext(Dispatchers.IO) {
         if (areas.isEmpty()) return@withContext ToolResult.Error("No hay áreas para redactar")
         try {
@@ -752,7 +821,9 @@ object PdfTools {
                 ?: return@withContext ToolResult.Error("No se pudo abrir el PDF")
             val reader  = PdfReader(inp)
             val total   = reader.numberOfPages
-            val out     = outFile(context, outName)
+            val fallback = uri.lastPathSegment?.substringAfterLast('/')?.let {
+                if (it.endsWith(".pdf", ignoreCase = true)) it else "$it.pdf" } ?: outName
+            val out     = resolveOutFile(context, overwrite, customName, fallback)
             val stamper = PdfStamper(reader, FileOutputStream(out))
 
             val bf = BaseFont.createFont(BaseFont.HELVETICA_BOLD, BaseFont.WINANSI, BaseFont.NOT_EMBEDDED)
@@ -779,11 +850,11 @@ object PdfTools {
                 cb.restoreState()
             }
 
-            stamper.close()
-            reader.close()
-            inp.close()
+            stamper.close(); reader.close(); inp.close()
+            maybeCopyBack(context, uri, out, overwrite)
+            val loc = if (!overwrite) "Descargas/OptiSuite/${out.name}" else out.name
             ToolResult.Success(fileUri(context, out),
-                "${areas.size} área(s) redactada(s) → $outName")
+                "${areas.size} área(s) redactada(s)\nGuardado: $loc")
         } catch (e: Exception) {
             ToolResult.Error("Error al redactar: ${e.message}")
         }
@@ -804,31 +875,32 @@ object PdfTools {
             } catch (_: Exception) { PdfPageInfo(595f, 842f) }
         }
 
-    // ── In-place editor: text block data ─────────────────────────────────────
+    // ── WYSIWYG: text block data ──────────────────────────────────────────────
 
     data class PdfTextBlock(
         val text     : String,
-        val x        : Float,
+        val x        : Float,   // PDF points, bottom-left origin
         val y        : Float,
         val width    : Float,
         val height   : Float,
         val fontSize : Float
     )
 
-    /** Returns detected text blocks for in-place editing. */
-    suspend fun extractTextBlocks(
-        context : Context,
-        uri     : Uri,
-        pageNum : Int
-    ): List<PdfTextBlock> = withContext(Dispatchers.IO) { emptyList() }
+    // ── WYSIWYG: extract all text blocks with coordinates ─────────────────────
 
-    /** Applies in-place text edits to a PDF page. */
+    suspend fun extractTextBlocks(context: Context, uri: Uri, pageNum: Int): List<PdfTextBlock> =
+        withContext(Dispatchers.IO) { emptyList() }
+
+    // ── WYSIWYG: save edited text back to PDF ─────────────────────────────────
+
     suspend fun applyWysiwygEdits(
-        context : Context,
-        uri     : Uri,
-        edits   : List<Pair<PdfTextBlock, String>>,
-        pageNum : Int,
-        outName : String = "editado.pdf"
+        context    : Context,
+        uri        : Uri,
+        edits      : List<Pair<PdfTextBlock, String>>,
+        pageNum    : Int,
+        outName    : String  = "editado_wysiwyg.pdf",
+        overwrite  : Boolean = true,
+        customName : String  = ""
     ): ToolResult = withContext(Dispatchers.IO) {
         ToolResult.Error("Edición de texto no disponible en esta compilación")
     }

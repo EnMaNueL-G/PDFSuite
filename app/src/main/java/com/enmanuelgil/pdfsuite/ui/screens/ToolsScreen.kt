@@ -114,6 +114,7 @@ fun ToolsScreen(
     var showSplitDialog    by remember { mutableStateOf(false) }
     var showPassDialog     by remember { mutableStateOf(false) }
     var pendingUri         by remember { mutableStateOf<Uri?>(null) }
+    var pendingImageUri    by remember { mutableStateOf<Uri?>(null) }
     var pendingPageCount   by remember { mutableStateOf(1) }
     var passMode           by remember { mutableStateOf("protect") }  // "protect" or "remove"
     var waitingForSplit     by remember { mutableStateOf(false) }
@@ -216,10 +217,11 @@ fun ToolsScreen(
                     onDismiss = { overlay = ToolOverlay.None }
                 )
                 is ToolOverlay.InsertImage -> InsertImageScreen(
-                    pdfUri    = ov.uri,
-                    pageCount = ov.pages,
-                    vm        = vm,
-                    onDismiss = { overlay = ToolOverlay.None }
+                    pdfUri              = ov.uri,
+                    pageCount           = ov.pages,
+                    vm                  = vm,
+                    onDismiss           = { overlay = ToolOverlay.None; pendingImageUri = null },
+                    preSelectedImageUri = pendingImageUri
                 )
                 is ToolOverlay.Organize -> OrganizePagesScreen(
                     uri       = ov.uri,
@@ -259,7 +261,26 @@ fun ToolsScreen(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris -> if (uris.isNotEmpty()) onMultiFilePicked?.invoke(uris) }
 
-    // Image picker (for scan fallback)
+    // Single image picker (for insertimg direct launch)
+    var waitingForInsertImgPdf by remember { mutableStateOf(false) }
+    val singleImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            pendingImageUri = uri
+            // Now ask user to pick the PDF to insert into
+            waitingForInsertImgPdf = true
+            onFilePicked = { pdfUri ->
+                pendingUri = pdfUri
+                waitingForInsertImg   = true
+                waitingForInsertImgPdf = false
+                vm.loadPageCount(context, pdfUri)
+            }
+            singlePicker.launch(arrayOf("application/pdf"))
+        }
+    }
+
+    // Multi-image picker (for convert/images-to-PDF)
     var onImagesPicked by remember { mutableStateOf<((List<Uri>) -> Unit)?>(null) }
     val imagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
@@ -348,6 +369,10 @@ fun ToolsScreen(
                                 onMultiFilePicked = { uris -> vm.merge(context, uris) }
                                 multiPicker.launch(arrayOf("application/pdf"))
                             }
+                            "insertimg" -> {
+                                // Open gallery directly — PDF is picked in second step
+                                singleImagePicker.launch(arrayOf("image/*"))
+                            }
                             else -> {
                                 onFilePicked = { uri ->
                                     pendingUri = uri
@@ -379,10 +404,7 @@ fun ToolsScreen(
                                             waitingForAnnotate = true
                                             vm.loadPageCount(context, uri)
                                         }
-                                        "insertimg" -> {
-                                            waitingForInsertImg = true
-                                            vm.loadPageCount(context, uri)
-                                        }
+                                        "insertimg" -> { /* handled by singleImagePicker above */ }
                                         "organize"  -> {
                                             waitingForOrganize = true
                                             vm.loadPageCount(context, uri)

@@ -31,14 +31,15 @@ import com.enmanuelgil.pdfsuite.ui.viewmodel.ToolsViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InsertImageScreen(
-    pdfUri    : Uri,
-    pageCount : Int,
-    vm        : ToolsViewModel,
-    onDismiss : () -> Unit
+    pdfUri             : Uri,
+    pageCount          : Int,
+    vm                 : ToolsViewModel,
+    onDismiss          : () -> Unit,
+    preSelectedImageUri: Uri? = null
 ) {
     val context = LocalContext.current
 
-    var imageUri  by remember { mutableStateOf<Uri?>(null) }
+    var imageUri  by remember { mutableStateOf<Uri?>(preSelectedImageUri) }
     var pageNum   by remember { mutableStateOf("1") }
     var xPos      by remember { mutableStateOf("72") }
     var yPos      by remember { mutableStateOf("200") }
