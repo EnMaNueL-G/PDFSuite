@@ -146,19 +146,19 @@ fun AboutScreen() {
                 var copied1 by remember { mutableStateOf(false) }
                 DonationRow(
                     label = "Binance Pay ID",
-                    value = "1140153333",
+                    value = "1165745950",
                     copied = copied1,
-                    onCopy = { copyToClipboard("1140153333", "Binance ID"); copied1 = true }
+                    onCopy = { copyToClipboard("1165745950", "Binance ID"); copied1 = true }
                 )
 
                 // BSC wallet
                 var copied2 by remember { mutableStateOf(false) }
                 DonationRow(
                     label = "BSC / BEP20",
-                    value = "0x0a9a0d8d816ede885d1d4a5c94369a72ef86b3c1",
+                    value = "0xb6f6731a4ea87f8e1fd6f44f48b5bc4204571f08",
                     short = "0x0a9a...b3c1",
                     copied = copied2,
-                    onCopy = { copyToClipboard("0x0a9a0d8d816ede885d1d4a5c94369a72ef86b3c1", "BSC Wallet"); copied2 = true }
+                    onCopy = { copyToClipboard("0xb6f6731a4ea87f8e1fd6f44f48b5bc4204571f08", "BSC Wallet"); copied2 = true }
                 )
             }
         }
