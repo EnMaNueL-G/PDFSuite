@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,11 +50,11 @@ private val TOOLS = listOf(
     // Editar
     ToolDef("rotate",    "Rotar",            Icons.Default.RotateRight,          Color(0xFF1E88E5), "Editar",   "Rota todas las páginas 90°, 180° o 270°"),
     ToolDef("compress",  "Comprimir",         Icons.Default.Compress,             Color(0xFF43A047), "Editar",   "Reduce el tamaño del PDF"),
-    ToolDef("password",  "Contraseña",        Icons.Default.Lock,                 Color(0xFF8E24AA), "Editar",   "Protege o desbloquea con contraseña AES-128"),
+    ToolDef("password",  "Contraseña",        Icons.Default.Lock,                 Color(0xFF8E24AA), "Editar",   "Protege o desbloquea con contraseña AES-256"),
     ToolDef("addtext",   "Agregar texto",     Icons.Default.TextFields,           Color(0xFFF57F17), "Editar",   "Añade texto en cualquier página y posición"),
     ToolDef("annotate",  "Anotaciones",       Icons.Default.Comment,              Color(0xFFF06292), "Editar",    "Notas, texto libre y resaltado de regiones"),
     ToolDef("insertimg", "Insertar imagen",   Icons.Default.AddPhotoAlternate,    Color(0xFF7E57C2), "Editar",    "Inserta una imagen de la galería en el PDF"),
-    ToolDef("redact",    "Redactar",          Icons.Default.VisibilityOff,        Color(0xFF37474F), "Editar",    "Censura datos sensibles con rectángulos negros"),
+    ToolDef("redact",    "Censurar",          Icons.Default.VisibilityOff,        Color(0xFF37474F), "Editar",    "Elimina de verdad datos sensibles (la página pasa a imagen)"),
 
     // Combinar
     ToolDef("merge",     "Combinar",          Icons.Default.CallMerge,            Color(0xFFE53935), "Combinar",  "Une varios PDFs en uno"),
@@ -63,11 +64,11 @@ private val TOOLS = listOf(
     ToolDef("organize",  "Organizar páginas", Icons.Default.ViewList,             Color(0xFF00ACC1), "Páginas",   "Elimina o reordena páginas del PDF"),
 
     // Convertir
-    ToolDef("convert",   "Convertir",         Icons.Default.Transform,            Color(0xFF5C6BC0), "Convertir", "Imágenes → PDF · Documentos Office"),
+    ToolDef("convert",   "Convertir",         Icons.Default.Transform,            Color(0xFF5C6BC0), "Convertir", "Imágenes → PDF · abrir Word/Excel en tu app de Office"),
     ToolDef("translate", "Traducir",          Icons.Default.Translate,            Color(0xFF00838F), "Convertir", "Extrae texto del PDF y lo envía al traductor"),
 
     // Firmar
-    ToolDef("sign",      "Firma digital",     Icons.Default.Draw,                 Color(0xFF00897B), "Firmar",    "Dibuja tu firma y estámpala en el PDF"),
+    ToolDef("sign",      "Firma a mano",      Icons.Default.Draw,                 Color(0xFF00897B), "Firmar",    "Dibuja tu firma y estámpala (imagen, no firma electrónica certificada)"),
     ToolDef("fillform",  "Formularios",       Icons.Default.Assignment,           Color(0xFF039BE5), "Firmar",    "Rellena campos AcroForm del PDF"),
 
     // Escanear
@@ -100,6 +101,7 @@ private sealed class ToolOverlay {
 @Composable
 fun ToolsScreen(
     onOpenPdf : ((android.net.Uri) -> Unit)? = null,
+    launchId  : String? = null,
     vm        : ToolsViewModel = viewModel()
 ) {
     val context   = LocalContext.current
@@ -108,6 +110,13 @@ fun ToolsScreen(
     val pageCount by vm.pageCount.collectAsState()
 
     var overlay by remember { mutableStateOf<ToolOverlay>(ToolOverlay.None) }
+    // Acceso rápido desde el inicio (debe ir ANTES del «return» de las pantallas superpuestas:
+    // si no, al cerrar la herramienta el estado se reinicia y se vuelve a abrir)
+    var launchedFromHome by rememberSaveable { mutableStateOf(false) }
+    var pendingLaunch    by remember { mutableStateOf<String?>(null) }
+    if (!launchedFromHome && launchId != null) { launchedFromHome = true; pendingLaunch = launchId }
+    // Atrás del sistema dentro de una herramienta: la cierra (no sale de la pestaña)
+    androidx.activity.compose.BackHandler(enabled = overlay !is ToolOverlay.None) { overlay = ToolOverlay.None }
 
     // Dialog states
     var showRotateDialog   by remember { mutableStateOf(false) }
@@ -194,7 +203,7 @@ fun ToolsScreen(
                 is ToolOverlay.Scanner  -> ScannerScreen(
                     vm        = vm,
                     onDismiss = { overlay = ToolOverlay.None },
-                    onOpenPdf = { /* reader is handled in MainActivity */ }
+                    onOpenPdf = { onOpenPdf?.invoke(it) }
                 )
                 is ToolOverlay.Text     -> TextToolScreen(
                     uri = ov.uri, vm = vm,
@@ -325,6 +334,79 @@ fun ToolsScreen(
         )
     }
 
+    // Lanza una herramienta (desde la cuadrícula o desde los accesos rápidos del inicio)
+    fun launchTool(tool: ToolDef) {
+        when (tool.id) {
+            "scan" -> {
+                overlay = ToolOverlay.Scanner()
+            }
+            "convert" -> {
+                overlay = ToolOverlay.Convert
+            }
+            "merge" -> {
+                onMultiFilePicked = { uris -> vm.merge(context, uris) }
+                multiPicker.launch(arrayOf("application/pdf"))
+            }
+            "insertimg" -> {
+                // Open gallery directly — PDF is picked in second step
+                singleImagePicker.launch(arrayOf("image/*"))
+            }
+            else -> {
+                onFilePicked = { uri ->
+                    pendingUri = uri
+                    when (tool.id) {
+                        "compress" -> vm.compress(context, uri)
+                        "rotate"   -> {
+                            showRotateDialog = true
+                        }
+                        "split"    -> {
+                            // Load page count; dialog shown by LaunchedEffect
+                            pendingPageCount = 1
+                            waitingForSplit  = true
+                            vm.loadPageCount(context, uri)
+                        }
+                        "password" -> {
+                            passMode = "both"
+                            showPassDialog = true
+                        }
+                        "sign"     -> overlay = ToolOverlay.Signing(uri)
+                        "fillform" -> overlay = ToolOverlay.Form(uri)
+                        "text"     -> overlay = ToolOverlay.Text(uri)
+                        "metadata" -> overlay = ToolOverlay.Metadata(uri)
+                        "addtext"  -> {
+                            // Load page count; overlay shown by LaunchedEffect
+                            waitingForAddText = true
+                            vm.loadPageCount(context, uri)
+                        }
+                        "annotate"  -> {
+                            waitingForAnnotate = true
+                            vm.loadPageCount(context, uri)
+                        }
+                        "insertimg" -> { /* handled by singleImagePicker above */ }
+                        "organize"  -> {
+                            waitingForOrganize = true
+                            vm.loadPageCount(context, uri)
+                        }
+                        "redact" -> {
+                            waitingForRedact = true
+                            vm.loadPageCount(context, uri)
+                        }
+                        "translate" -> {
+                            waitingForTranslate = true
+                            vm.loadPageCount(context, uri)
+                        }
+                        else -> {}
+                    }
+                }
+                singlePicker.launch(arrayOf("application/pdf"))
+            }
+        }
+    }
+
+    LaunchedEffect(pendingLaunch) {
+        pendingLaunch?.let { id -> pendingLaunch = null; TOOLS.firstOrNull { it.id == id }?.let { launchTool(it) } }
+    }
+
     // ── Main scaffold ─────────────────────────────────────────────────────────
     Scaffold(
         topBar = {
@@ -358,71 +440,7 @@ fun ToolsScreen(
                 }
                 item {
                     ToolGrid(TOOLS.filter { it.category == cat }) { tool ->
-                        when (tool.id) {
-                            "scan" -> {
-                                overlay = ToolOverlay.Scanner()
-                            }
-                            "convert" -> {
-                                overlay = ToolOverlay.Convert
-                            }
-                            "merge" -> {
-                                onMultiFilePicked = { uris -> vm.merge(context, uris) }
-                                multiPicker.launch(arrayOf("application/pdf"))
-                            }
-                            "insertimg" -> {
-                                // Open gallery directly — PDF is picked in second step
-                                singleImagePicker.launch(arrayOf("image/*"))
-                            }
-                            else -> {
-                                onFilePicked = { uri ->
-                                    pendingUri = uri
-                                    when (tool.id) {
-                                        "compress" -> vm.compress(context, uri)
-                                        "rotate"   -> {
-                                            showRotateDialog = true
-                                        }
-                                        "split"    -> {
-                                            // Load page count; dialog shown by LaunchedEffect
-                                            pendingPageCount = 1
-                                            waitingForSplit  = true
-                                            vm.loadPageCount(context, uri)
-                                        }
-                                        "password" -> {
-                                            passMode = "both"
-                                            showPassDialog = true
-                                        }
-                                        "sign"     -> overlay = ToolOverlay.Signing(uri)
-                                        "fillform" -> overlay = ToolOverlay.Form(uri)
-                                        "text"     -> overlay = ToolOverlay.Text(uri)
-                                        "metadata" -> overlay = ToolOverlay.Metadata(uri)
-                                        "addtext"  -> {
-                                            // Load page count; overlay shown by LaunchedEffect
-                                            waitingForAddText = true
-                                            vm.loadPageCount(context, uri)
-                                        }
-                                        "annotate"  -> {
-                                            waitingForAnnotate = true
-                                            vm.loadPageCount(context, uri)
-                                        }
-                                        "insertimg" -> { /* handled by singleImagePicker above */ }
-                                        "organize"  -> {
-                                            waitingForOrganize = true
-                                            vm.loadPageCount(context, uri)
-                                        }
-                                        "redact" -> {
-                                            waitingForRedact = true
-                                            vm.loadPageCount(context, uri)
-                                        }
-                                        "translate" -> {
-                                            waitingForTranslate = true
-                                            vm.loadPageCount(context, uri)
-                                        }
-                                        else -> {}
-                                    }
-                                }
-                                singlePicker.launch(arrayOf("application/pdf"))
-                            }
-                        }
+                        launchTool(tool)
                     }
                 }
             }
@@ -707,7 +725,7 @@ private fun PasswordDialog(
                         focusedBorderColor = Color(0xFF8E24AA))
                 )
                 if (tab == 0) {
-                    Text("Cifrado AES-128. Permite impresión y copia.",
+                    Text("Cifrado AES-256. Permite impresión y copia.",
                         fontSize = 11.sp,
                         color    = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

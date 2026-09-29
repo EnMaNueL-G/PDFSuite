@@ -44,6 +44,7 @@ fun RedactScreen(
     var label   by remember { mutableStateOf("CONFIDENCIAL") }
 
     val validInput = (page.toIntOrNull() ?: 0) in 1..pageCount.coerceAtLeast(1) &&
+                    x.toFloatOrNull() != null && y.toFloatOrNull() != null &&
                     (w.toFloatOrNull() ?: 0f) > 0 && (h.toFloatOrNull() ?: 0f) > 0
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -140,11 +141,11 @@ fun RedactScreen(
                                 )
                             }
 
-                            OutlinedTextField(
-                                value = label, onValueChange = { label = it },
-                                label = { Text("Etiqueta (opcional)") },
-                                modifier = Modifier.fillMaxWidth(), singleLine = true,
-                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PdfRed)
+                            Text(
+                                "Censura real: cada página afectada se convierte en imagen con las zonas en negro. " +
+                                    "El texto oculto se elimina de verdad (no se puede copiar ni buscar), pero esa página " +
+                                    "deja de tener texto seleccionable. Se guarda como archivo nuevo.",
+                                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
 
                             Button(

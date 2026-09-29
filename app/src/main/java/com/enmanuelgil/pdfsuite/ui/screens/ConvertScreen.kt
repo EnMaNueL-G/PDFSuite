@@ -189,7 +189,7 @@ private fun OfficeToPdfTab(context: android.content.Context) {
         Triple(Icons.Default.Print,        "Imprimir a PDF",
             "Dentro de la app de Office: Menú → Imprimir → Selecciona 'Guardar como PDF' o 'PDF virtual'."),
         Triple(Icons.Default.Save,         "Guardar y usar",
-            "El PDF generado por Office quedará en tu almacenamiento. Ábrelo con PDFSuite para editarlo.")
+            "El PDF generado por Office quedará en tu almacenamiento. Ábrelo con OptiSuite PDF para editarlo.")
     )
 
     LazyColumn(
@@ -240,24 +240,30 @@ private fun OfficeToPdfTab(context: android.content.Context) {
         }
 
         item {
-            // Open file browser
+            // Elegir el documento y abrirlo con una app de Office instalada (la conversión la hace esa app)
+            val officePicker = androidx.activity.compose.rememberLauncherForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+            ) { picked ->
+                if (picked != null) try {
+                    val view = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(picked, context.contentResolver.getType(picked) ?: "*/*")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(view, "Abrir con…"))
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(context, "No hay ninguna app de Office instalada para abrirlo", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
             Button(
                 onClick  = {
-                    try {
-                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                            addCategory(Intent.CATEGORY_OPENABLE)
-                            type = "*/*"
-                            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
-                                "application/msword",
-                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                "application/vnd.ms-excel",
-                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                "application/vnd.ms-powerpoint",
-                                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                            ))
-                        }
-                        context.startActivity(intent)
-                    } catch (e: Exception) { /* no office app */ }
+                    officePicker.launch(arrayOf(
+                        "application/msword",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "application/vnd.ms-excel",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "application/vnd.ms-powerpoint",
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    ))
                 },
                 colors   = ButtonDefaults.buttonColors(containerColor = PdfRed),
                 modifier = Modifier.fillMaxWidth()

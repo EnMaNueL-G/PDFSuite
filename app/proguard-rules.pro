@@ -1,13 +1,10 @@
-# PDFSuite ProGuard rules
+# OptiSuite PDF — reglas de R8
 
-# iTextG (iText 5 for Android)
--keep class com.itextpdf.** { *; }
--dontwarn com.itextpdf.**
+# PdfBox-Android (Apache-2.0): carga clases y recursos (fuentes, glyphlist) por reflexión/nombre
+-keep class com.tom_roush.** { *; }
+-dontwarn com.tom_roush.**
+-dontwarn com.gemalto.jp2.**
 -dontwarn org.bouncycastle.**
--keep class org.bouncycastle.** { *; }
-
-# Compose
--keep class androidx.compose.** { *; }
 
 # Kotlin
 -keepattributes *Annotation*

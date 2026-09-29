@@ -9,5 +9,8 @@
 .cxx
 local.properties
 app/build/
-# Internal implementation files — not for public distribution
-app/src/main/java/com/enmanuelgil/pdfsuite/ui/screens/WysiwygEditorScreen.kt
+
+keystore.properties
+*.jks
+*.apk
+dist/

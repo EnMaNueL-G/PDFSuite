@@ -30,7 +30,8 @@ object PdfRepository {
                     if (pageIndex < 0 || pageIndex >= r.pageCount) return@withContext null
                     r.openPage(pageIndex).use { page ->
                         val ratio  = page.height.toFloat() / page.width.toFloat()
-                        val height = (width * ratio).toInt().coerceAtLeast(1)
+                        // Páginas muy alargadas (tickets, infografías): limitar para no crear bitmaps gigantes
+                        val height = (width * ratio).toInt().coerceIn(1, 8192)
                         val bmp    = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                         android.graphics.Canvas(bmp).drawColor(Color.WHITE)
                         page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)

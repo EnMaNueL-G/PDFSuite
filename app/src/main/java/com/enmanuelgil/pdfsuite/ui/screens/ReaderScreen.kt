@@ -94,6 +94,7 @@ private sealed class ReaderOverlay {
 fun ReaderScreen(
     uri     : Uri,
     onBack  : () -> Unit,
+    onOpenUri: (Uri) -> Unit = {},
     vm      : ReaderViewModel = viewModel(),
     toolsVm : ToolsViewModel  = viewModel()
 ) {
@@ -106,6 +107,11 @@ fun ReaderScreen(
     val fileName    by vm.fileName.collectAsState()
     val showSearch  by vm.showSearch.collectAsState()
     val searchQuery by vm.searchQuery.collectAsState()
+    val hits        by vm.hits.collectAsState()
+    val hitIndex    by vm.hitIndex.collectAsState()
+    val searching   by vm.searching.collectAsState()
+    val openError   by vm.openError.collectAsState()
+    var showJump    by remember { mutableStateOf(false) }
 
     var activeTab     by remember { mutableStateOf<ReaderTab?>(null) }  // null = no tab active
     var readerOverlay by remember { mutableStateOf<ReaderOverlay>(ReaderOverlay.None) }
@@ -114,6 +120,14 @@ fun ReaderScreen(
     val isWorking  by toolsVm.isWorking.collectAsState()
 
     LaunchedEffect(uri) { vm.open(context, uri) }
+    // Atrás del sistema: cerrar la búsqueda o volver al inicio (no salir de la app)
+    // Atrás dentro de Organizar / Traducir / Formulario: volver al lector (el editor gestiona el suyo)
+    androidx.activity.compose.BackHandler(enabled = readerOverlay !is ReaderOverlay.None && readerOverlay !is ReaderOverlay.InPlace) {
+        readerOverlay = ReaderOverlay.None
+    }
+    androidx.activity.compose.BackHandler(enabled = readerOverlay is ReaderOverlay.None) {
+        if (showSearch) vm.toggleSearch() else onBack()
+    }
 
     val bgColor = if (nightMode) Color(0xFF121212) else Color(0xFFF5F5F5)
 
@@ -129,7 +143,9 @@ fun ReaderScreen(
                     startPage = ov.startPage,
                     startMode = ov.mode,
                     toolsVm   = toolsVm,
-                    onDismiss = { readerOverlay = ReaderOverlay.None; vm.open(context, uri) }
+                    onDismiss = { readerOverlay = ReaderOverlay.None; vm.open(context, uri) },
+                    // Guardado como archivo nuevo → abrirlo, para seguir editando sobre el resultado
+                    onSaved   = { out -> readerOverlay = ReaderOverlay.None; if (out != uri) onOpenUri(out) else vm.open(context, uri) }
                 )
                 is ReaderOverlay.Organize -> OrganizePagesScreen(uri, ov.pages, toolsVm) { readerOverlay = ReaderOverlay.None }
                 is ReaderOverlay.Translate -> TranslateScreen(uri) { readerOverlay = ReaderOverlay.None }
@@ -160,6 +176,42 @@ fun ReaderScreen(
         return
     }
 
+    // Resultado de las herramientas lanzadas desde el lector (Rotar, Comprimir…)
+    if (toolResult != null && toolResult !is ToolResult.Loading) {
+        val r = toolResult
+        AlertDialog(
+            onDismissRequest = { toolsVm.clearResult() },
+            title = { Text(if (r is ToolResult.Success) "¡Listo!" else "No se pudo", fontWeight = FontWeight.Bold) },
+            text  = { Text(when (r) { is ToolResult.Success -> r.message; is ToolResult.Error -> r.message; else -> "" }) },
+            confirmButton = {
+                Button(onClick = { toolsVm.clearResult() }, colors = ButtonDefaults.buttonColors(containerColor = PdfRed)) { Text("OK") }
+            },
+            dismissButton = {
+                if (r is ToolResult.Success) TextButton(onClick = { vm.share(context, r.outputUri); toolsVm.clearResult() }) { Text("Compartir") }
+            }
+        )
+    }
+
+    // Ir a una página concreta
+    if (showJump) {
+        var input by remember { mutableStateOf("") }
+        val n = input.toIntOrNull()
+        AlertDialog(
+            onDismissRequest = { showJump = false },
+            title = { Text("Ir a la página") },
+            text  = {
+                OutlinedTextField(value = input, onValueChange = { input = it.filter(Char::isDigit).take(6) },
+                    label = { Text("1 – $pageCount") }, singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number))
+            },
+            confirmButton = {
+                Button(onClick = { vm.goToPage(n!! - 1); showJump = false }, enabled = n != null && n in 1..pageCount,
+                    colors = ButtonDefaults.buttonColors(containerColor = PdfRed)) { Text("Ir") }
+            },
+            dismissButton = { TextButton(onClick = { showJump = false }) { Text("Cancelar") } }
+        )
+    }
+
     // ── Reader layout ─────────────────────────────────────────────────────────
     Box(Modifier.fillMaxSize().background(bgColor)) {
 
@@ -171,7 +223,7 @@ fun ReaderScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Default.Error, null, tint = MaterialTheme.colorScheme.error,
                     modifier = Modifier.size(48.dp))
-                Text("No se pudo abrir el PDF", textAlign = TextAlign.Center,
+                Text(openError.ifBlank { "No se pudo abrir el PDF" }, textAlign = TextAlign.Center,
                     color = if (nightMode) Color.White else Color(0xFF212121))
                 TextButton(onClick = onBack) { Text("Volver") }
             }
@@ -205,7 +257,7 @@ fun ReaderScreen(
         AnimatedVisibility(visible = showBars,
             enter = slideInVertically { -it }, exit = slideOutVertically { -it },
             modifier = Modifier.align(Alignment.TopCenter)) {
-            Surface(color = if (nightMode) Color(0xF0121212) else Color.White,
+            Surface(color = if (nightMode) Color(0xFF121212) else Color.White,
                 modifier = Modifier.fillMaxWidth(), shadowElevation = 4.dp) {
                 Column {
                     Row(Modifier.fillMaxWidth().statusBarsPadding()
@@ -232,6 +284,10 @@ fun ReaderScreen(
                             Icon(Icons.Default.Share, null,
                                 tint = if (nightMode) Color.White else Color(0xFF424242))
                         }
+                        IconButton(onClick = { vm.print(context, uri, fileName) }) {
+                            Icon(Icons.Default.Print, "Imprimir",
+                                tint = if (nightMode) Color.White else Color(0xFF424242))
+                        }
                     }
                     AnimatedVisibility(visible = showSearch) {
                         OutlinedTextField(
@@ -247,6 +303,28 @@ fun ReaderScreen(
                                 .padding(horizontal = 12.dp, vertical = 4.dp),
                             shape = RoundedCornerShape(24.dp)
                         )
+                    }
+                    // Resultados de la búsqueda: «3 de 63 · pág. 5» con anterior/siguiente
+                    AnimatedVisibility(visible = showSearch && searchQuery.trim().length >= 2) {
+                        val fg = if (nightMode) Color.White else Color(0xFF424242)
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            val label = when {
+                                searching -> "Buscando…"
+                                hits.isEmpty() -> "Sin coincidencias"
+                                else -> "${hitIndex + 1} de ${hits.size}${if (hits.size >= 300) "+" else ""} · pág. ${hits[hitIndex.coerceAtLeast(0)].first}"
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(label, fontSize = 12.sp, color = fg, fontWeight = FontWeight.SemiBold)
+                                if (!searching && hits.isNotEmpty() && hitIndex >= 0)
+                                    Text(hits[hitIndex].second, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                        color = fg.copy(alpha = 0.7f))
+                            }
+                            IconButton(onClick = { vm.prevHit() }, enabled = hits.isNotEmpty()) {
+                                Icon(Icons.Default.KeyboardArrowUp, "Anterior", tint = fg) }
+                            IconButton(onClick = { vm.nextHit() }, enabled = hits.isNotEmpty()) {
+                                Icon(Icons.Default.KeyboardArrowDown, "Siguiente", tint = fg) }
+                        }
                     }
                 }
             }
@@ -310,7 +388,8 @@ fun ReaderScreen(
                         Text("${currentPage + 1}/$pageCount",
                             fontSize = 11.sp, fontWeight = FontWeight.Bold,
                             color    = if (nightMode) Color.White.copy(0.6f) else Color(0xFF757575),
-                            modifier = Modifier.padding(start = 10.dp).width(40.dp),
+                            modifier = Modifier.padding(start = 10.dp).width(40.dp)
+                                .clickable { showJump = true },   // tocar = ir a una página
                             textAlign = TextAlign.Center)
 
                         // Tabs
@@ -414,7 +493,7 @@ private fun PageList(
     }
 
     LazyColumn(state = listState,
-        contentPadding = PaddingValues(top = 4.dp, bottom = extraBottomPad),
+        contentPadding = PaddingValues(top = 96.dp, bottom = extraBottomPad),   // bajo la barra superior
         verticalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier.fillMaxSize()) {
         items(pageCount, key = { it }) { idx ->
@@ -451,8 +530,13 @@ private fun PageItem(
         }
         .clickable { onClick(); scale = 1f; offsetX = 0f; offsetY = 0f }
     ) {
+        // Modo noche real: invierte los colores (fondo oscuro, texto claro), algo suavizado
         val nightFilter = if (nightMode) ColorFilter.colorMatrix(
-            ColorMatrix().also { it.setToScale(0.90f, 0.86f, 0.76f, 1f) }
+            ColorMatrix(floatArrayOf(
+                -0.88f, 0f, 0f, 0f, 235f,
+                0f, -0.88f, 0f, 0f, 235f,
+                0f, 0f, -0.88f, 0f, 235f,
+                0f, 0f, 0f, 1f, 0f))
         ) else null
 
         if (bitmap != null) {

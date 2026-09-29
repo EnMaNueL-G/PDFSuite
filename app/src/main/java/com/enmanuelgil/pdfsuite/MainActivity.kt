@@ -25,6 +25,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -40,7 +42,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         enableEdgeToEdge()
+        // Limpiar archivos de trabajo que hayan quedado de una sesión interrumpida
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            java.io.File(cacheDir, "work").listFiles()?.forEach { if (System.currentTimeMillis() - it.lastModified() > 3_600_000L) it.delete() }
+        }
         val initialUri: Uri? = intent?.data
+        // Autotest del motor PDF (solo en compilaciones de depuración)
+        if (intent?.getBooleanExtra("selftest", false) == true && com.enmanuelgil.pdfsuite.data.SelfTest.enabled(this)) {
+            lifecycleScope.launch { com.enmanuelgil.pdfsuite.data.SelfTest.run(this@MainActivity) }
+        }
         setContent { PDFSuiteTheme { PDFSuiteApp(initialUri) } }
     }
 }
@@ -55,19 +65,18 @@ fun PDFSuiteApp(initialUri: Uri? = null) {
     // Global file picker (FAB center button) — PDF + common office formats
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
-            try { context.contentResolver.takePersistableUriPermission(
-                it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {}
+            // Lectura y, si el proveedor lo permite, escritura (para «Sobrescribir» tras reiniciar)
+            val rw = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            try { context.contentResolver.takePersistableUriPermission(it, rw) }
+            catch (_: Exception) {
+                try { context.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {}
+            }
             homeVm.addRecent(context, it)
             readerUri = it
         }
     }
-    val supportedMimeTypes = arrayOf(
-        "application/pdf",
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+    // Solo PDF: el lector no abre Word/Excel (para eso está OptiSuite Office)
+    val supportedMimeTypes = arrayOf("application/pdf")
 
     // ── Full-screen reader ────────────────────────────────────────────────────
     if (readerUri != null) {
@@ -76,7 +85,8 @@ fun PDFSuiteApp(initialUri: Uri? = null) {
             enter   = slideInVertically { it },
             exit    = slideOutVertically { it }
         ) {
-            ReaderScreen(uri = readerUri!!, onBack = { readerUri = null })
+            ReaderScreen(uri = readerUri!!, onBack = { readerUri = null },
+                onOpenUri = { out -> homeVm.addRecent(context, out); readerUri = out })
         }
         return
     }
@@ -100,6 +110,11 @@ fun PDFSuiteApp(initialUri: Uri? = null) {
                 HomeScreen(
                     onOpenPdf    = { uri -> readerUri = uri },
                     onOpenPicker = { picker.launch(supportedMimeTypes) },
+                    onOpenTool   = { id ->
+                        navController.navigate(if (id == null) "tools" else "tools?launch=$id") {
+                            popUpTo("home") { saveState = true }; launchSingleTop = true
+                        }
+                    },
                     homeVm       = homeVm
                 )
             }
@@ -110,8 +125,11 @@ fun PDFSuiteApp(initialUri: Uri? = null) {
                     homeVm       = homeVm
                 )
             }
-            composable("tools") {
-                ToolsScreen(onOpenPdf = { uri -> readerUri = uri })
+            composable("tools?launch={launch}",
+                arguments = listOf(androidx.navigation.navArgument("launch") { nullable = true; defaultValue = null })
+            ) { entry ->
+                ToolsScreen(onOpenPdf = { uri -> readerUri = uri },
+                    launchId = entry.arguments?.getString("launch"))
             }
             composable("about") {
                 AboutScreen()
@@ -172,7 +190,7 @@ private fun BottomNavBar(
             NavBarBtn(
                 icon     = Icons.Default.GridView,
                 label    = "Herramientas",
-                selected = current == "tools",
+                selected = current?.startsWith("tools") == true,
                 onClick  = { navController.navigate("tools") {
                     popUpTo("home") { saveState = true }; launchSingleTop = true; restoreState = true
                 }}

@@ -81,7 +81,7 @@ class ToolsViewModel : ViewModel() {
         y          : Float,
         w          : Float,
         h          : Float,
-        overwrite  : Boolean = true,
+        overwrite  : Boolean = false,
         customName : String  = ""
     ) = run { PdfTools.stampSignature(context, uri, bitmap, pageNum, x, y, w, h,
             overwrite = overwrite, customName = customName) }
@@ -106,7 +106,10 @@ class ToolsViewModel : ViewModel() {
 
     fun loadPageCount(context: Context, uri: Uri) {
         viewModelScope.launch {
-            _pageCount.value = PdfTools.getPageCount(context, uri)
+            _pageCount.value = 0   // forzar el aviso aunque el nuevo PDF tenga las mismas páginas que el anterior
+            val n = PdfTools.getPageCount(context, uri)
+            if (n <= 0) _result.value = ToolResult.Error("No se pudo abrir este PDF (¿está dañado o tiene contraseña? Quítala con «Contraseña»).")
+            _pageCount.value = n
         }
     }
 
@@ -140,7 +143,7 @@ class ToolsViewModel : ViewModel() {
         width      : Float,
         height     : Float,
         colorHex   : Int,
-        overwrite  : Boolean = true,
+        overwrite  : Boolean = false,
         customName : String  = ""
     ) = run { PdfTools.addAnnotation(context, uri, type, text, pageNum, x, y, width, height, colorHex,
             overwrite = overwrite, customName = customName) }
@@ -171,7 +174,7 @@ class ToolsViewModel : ViewModel() {
         context    : Context,
         uri        : Uri,
         areas      : List<PdfTools.RedactArea>,
-        overwrite  : Boolean = true,
+        overwrite  : Boolean = false,
         customName : String  = ""
     ) = run { PdfTools.redactAreas(context, uri, areas,
             overwrite = overwrite, customName = customName) }
@@ -183,10 +186,19 @@ class ToolsViewModel : ViewModel() {
         uri        : Uri,
         edits      : List<Pair<PdfTools.PdfTextBlock, String>>,
         pageNum    : Int,
-        overwrite  : Boolean = true,
+        overwrite  : Boolean = false,
         customName : String  = ""
     ) = run { PdfTools.applyWysiwygEdits(context, uri, edits, pageNum,
             overwrite = overwrite, customName = customName) }
+
+    fun applyEditorChanges(
+        context    : Context,
+        uri        : Uri,
+        pageNum    : Int,
+        changes    : PdfTools.EditorChanges,
+        overwrite  : Boolean = false,
+        customName : String  = ""
+    ) = run { PdfTools.applyEditorChanges(context, uri, pageNum, changes, overwrite, customName) }
 
     suspend fun extractTextBlocks(context: Context, uri: Uri, pageNum: Int) =
         PdfTools.extractTextBlocks(context, uri, pageNum)

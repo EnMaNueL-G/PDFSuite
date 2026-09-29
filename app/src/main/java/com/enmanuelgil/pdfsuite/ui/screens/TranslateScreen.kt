@@ -164,6 +164,13 @@ fun TranslateScreen(
                     Text("Traducir", fontSize = 12.sp)
                 }
             }
+            Text(
+                "OptiSuite PDF no traduce ni se conecta a Internet: «Traducir» envía el texto a la app que elijas " +
+                    "(p. ej. Google Traductor), que sí lo procesa en sus servidores. " +
+                    if (text.length > 4900) "Se envían los primeros 4.900 caracteres; usa el filtro de páginas para el resto." else "",
+                fontSize = 11.sp, color = androidx.compose.ui.graphics.Color.Gray,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+            )
 
             // ── Page filter ───────────────────────────────────────────────────
             Row(
@@ -235,28 +242,12 @@ fun TranslateScreen(
     }
 }
 
-private suspend fun extractText(context: Context, uri: Uri, pages: IntRange?): String =
-    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        try {
-            val inp    = context.contentResolver.openInputStream(uri) ?: return@withContext ""
-            val reader = com.itextpdf.text.pdf.PdfReader(inp)
-            val total  = reader.numberOfPages
-            val range  = pages ?: (1..total)
-            val sb     = StringBuilder()
-            for (p in range) {
-                if (p < 1 || p > total) continue
-                val pageText = com.itextpdf.text.pdf.parser.PdfTextExtractor.getTextFromPage(reader, p)
-                if (pageText.isNotBlank()) {
-                    sb.append("── Página $p ──\n")
-                    sb.append(pageText.trim())
-                    sb.append("\n\n")
-                }
-            }
-            reader.close()
-            inp.close()
-            sb.toString().trim()
-        } catch (e: Exception) { "" }
-    }
+private suspend fun extractText(context: Context, uri: Uri, pages: IntRange?): String {
+    val texts = com.enmanuelgil.pdfsuite.data.PdfTools.pageTexts(context, uri, pages)
+    val first = pages?.first ?: 1
+    return texts.mapIndexedNotNull { i, t -> t.trim().takeIf { it.isNotBlank() }?.let { "── Página ${first + i} ──\n$it" } }
+        .joinToString("\n\n")
+}
 
 private fun parseRange(input: String): IntRange? {
     val trimmed = input.trim()

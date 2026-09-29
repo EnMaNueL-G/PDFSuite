@@ -19,8 +19,15 @@ class HomeViewModel : ViewModel() {
     val favorites : StateFlow<List<PdfEntry>> = _favorites.asStateFlow()
     val isLoading : StateFlow<Boolean>        = _isLoading.asStateFlow()
 
+    private var loadJob: kotlinx.coroutines.Job? = null
+    private val thumbs = HashMap<String, PdfEntry>()   // miniaturas ya calculadas, por uri+tamaño (se renuevan si el archivo cambia)
+    private fun sizeOf(context: Context, uri: Uri): Long = try {
+        context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use { if (it.moveToFirst()) it.getLong(0) else -1L } ?: -1L
+    } catch (_: Exception) { -1L }
+
     fun load(context: Context) {
-        viewModelScope.launch {
+        if (loadJob?.isActive == true) return          // una sola suscripción, aunque se llame en cada entrada
+        loadJob = viewModelScope.launch {
             _isLoading.value = true
             combine(
                 RecentFilesStore.getRecents(context),
@@ -28,7 +35,11 @@ class HomeViewModel : ViewModel() {
             ) { recentUris, favUris ->
                 Pair(recentUris, favUris)
             }.collect { (recentUris, favUris) ->
-                val entries = recentUris.mapNotNull { uri -> buildEntry(context, uri, favUris) }
+                val entries = recentUris.mapNotNull { uri ->
+                    val key = "$uri|${sizeOf(context, uri)}"
+                    (thumbs[key] ?: buildEntry(context, uri, favUris)?.also { thumbs[key] = it })
+                        ?.copy(isFavorite = favUris.contains(uri))
+                }
                 _recents.value   = entries
                 _favorites.value = entries.filter { it.isFavorite }
                 _isLoading.value = false

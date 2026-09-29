@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -86,7 +87,8 @@ fun InPlaceEditorScreen(
     startPage   : Int         = 1,
     startMode   : InPlaceMode = InPlaceMode.TEXT,
     toolsVm     : ToolsViewModel,
-    onDismiss   : () -> Unit
+    onDismiss   : () -> Unit,
+    onSaved     : (Uri) -> Unit = { onDismiss() }
 ) {
     val context      = LocalContext.current
     val density      = LocalDensity.current
@@ -149,6 +151,32 @@ fun InPlaceEditorScreen(
                 bitmap = bmp
             ))
         }}
+    }
+
+    // Cambiar de página con cambios sin guardar: preguntar antes de descartarlos
+    var pendingPage by remember { mutableStateOf<Int?>(null) }
+    fun hasChanges() = overlays.isNotEmpty() || textEdits.any { (i, t) -> i < textBlocks.size && t != textBlocks[i].text }
+    pendingPage?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingPage = null },
+            title = { Text("Cambios sin guardar") },
+            text  = { Text("Tienes cambios en esta página que no se han guardado. Si cambias de página se perderán.") },
+            confirmButton = { TextButton(onClick = { currentPage = target; pendingPage = null }) { Text("Descartar y cambiar") } },
+            dismissButton = { TextButton(onClick = { pendingPage = null }) { Text("Seguir editando") } }
+        )
+    }
+
+    // Atrás del sistema: salir del editor, preguntando si hay cambios sin guardar
+    var confirmExit by remember { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler { if (hasChanges()) confirmExit = true else onDismiss() }
+    if (confirmExit) {
+        AlertDialog(
+            onDismissRequest = { confirmExit = false },
+            title = { Text("¿Salir sin guardar?") },
+            text  = { Text("Los cambios de esta página se perderán.") },
+            confirmButton = { TextButton(onClick = { confirmExit = false; onDismiss() }) { Text("Salir") } },
+            dismissButton = { TextButton(onClick = { confirmExit = false }) { Text("Seguir editando") } }
+        )
     }
 
     // ── Load page ─────────────────────────────────────────────────────────────
@@ -251,7 +279,7 @@ fun InPlaceEditorScreen(
     if (sr != null) {
         AlertDialog(
             onDismissRequest = { saveResult = null; toolsVm.clearResult()
-                if (sr is ToolResult.Success) onDismiss() },
+                if (sr is ToolResult.Success) onSaved(sr.outputUri) },
             title   = { Text(if (sr is ToolResult.Success) "✓ Guardado" else "Error",
                 fontWeight = FontWeight.Bold) },
             text    = { Text(when (sr) {
@@ -261,7 +289,7 @@ fun InPlaceEditorScreen(
             }) },
             confirmButton = {
                 Button(onClick = { saveResult = null; toolsVm.clearResult()
-                    if (sr is ToolResult.Success) onDismiss() },
+                    if (sr is ToolResult.Success) onSaved(sr.outputUri) },
                     colors = ButtonDefaults.buttonColors(containerColor = PdfRed)
                 ) { Text("OK") }
             }
@@ -376,12 +404,8 @@ fun InPlaceEditorScreen(
                     Button(
                         onClick = {
                             focusManager.clearFocus(); activeTextIdx = null
-                            // Derive a default name from URI
-                            val seg = uri.lastPathSegment ?: "documento"
-                            customSaveName = seg.substringAfterLast('/').let {
-                                if (it.endsWith(".pdf", ignoreCase = true)) it
-                                else "editado_$it.pdf"
-                            }
+                            // Nombre por defecto a partir del nombre real del archivo: «contrato (editado).pdf»
+                            customSaveName = PdfTools.derivedName(context, uri, "editado")
                             showSaveDialog = true
                         },
                         enabled  = hasChanges && !isLoading && !isSaving,
@@ -618,22 +642,26 @@ fun InPlaceEditorScreen(
                                             if (sel) {
                                                 Box(Modifier
                                                     .align(Alignment.BottomEnd)
-                                                    .size(18.dp)
+                                                    .size(26.dp)
+                                                    .zIndex(10f)
                                                     .background(PdfRed, RoundedCornerShape(4.dp))
-                                                    .pointerInput(ov.id) {
-                                                        detectDragGestures { _, drag ->
-                                                            val dw = drag.x / docScale
-                                                            val dh = drag.y / docScale
-                                                            val idx2 = overlays.indexOfFirst { it.id == ov.id }
-                                                            if (idx2 >= 0) overlays[idx2] = overlays[idx2].copy(
-                                                                wPt = (overlays[idx2].wPt + dw).coerceAtLeast(20f),
-                                                                hPt = (overlays[idx2].hPt + dh).coerceAtLeast(20f)
-                                                            )
-                                                        }
+                                                    .pointerInput(ov.id + "_r") {
+                                                        detectDragGestures(
+                                                            onDragStart = { /* separate key ensures priority */ },
+                                                            onDrag = { _, drag ->
+                                                                val dw = drag.x / docScale
+                                                                val dh = drag.y / docScale
+                                                                val idx2 = overlays.indexOfFirst { it.id == ov.id }
+                                                                if (idx2 >= 0) overlays[idx2] = overlays[idx2].copy(
+                                                                    wPt = (overlays[idx2].wPt + dw).coerceAtLeast(20f),
+                                                                    hPt = (overlays[idx2].hPt + dh).coerceAtLeast(20f)
+                                                                )
+                                                            }
+                                                        )
                                                     }
                                                 ) {
                                                     Icon(Icons.Default.OpenWith, null,
-                                                        Modifier.size(12.dp).align(Alignment.Center),
+                                                        Modifier.size(14.dp).align(Alignment.Center),
                                                         tint = Color.White)
                                                 }
                                                 // Delete handle
@@ -695,21 +723,43 @@ fun InPlaceEditorScreen(
                                         }
 
                                         OverlayKind.ANNOTATE -> {
+                                            // Track whether the resize handle is being dragged
+                                            // so the move-drag on the body ignores those events
+                                            var resizeDragging by remember(ov.id) { mutableStateOf(false) }
+
                                             Box(Modifier.fillMaxSize()
                                                 .background(Color(0xFFFFF9C4), RoundedCornerShape(4.dp))
                                                 .border(1.dp, Color(0xFFF9A825), RoundedCornerShape(4.dp))
                                                 .padding(4.dp)
                                                 .pointerInput(ov.id) { detectTapGestures { selectedId = ov.id } }
                                                 .pointerInput(ov.id) {
-                                                    detectDragGestures { _, drag ->
-                                                        val idx2 = overlays.indexOfFirst { it.id == ov.id }
-                                                        if (idx2 >= 0) overlays[idx2] = overlays[idx2].copy(
-                                                            xPt = (overlays[idx2].xPt + drag.x / docScale)
-                                                                .coerceIn(0f, pageWidthPt - ov.wPt),
-                                                            yPt = (overlays[idx2].yPt - drag.y / docScale)
-                                                                .coerceIn(0f, pageHeightPt - ov.hPt)
-                                                        )
-                                                    }
+                                                    detectDragGestures(
+                                                        onDragStart = { offset ->
+                                                            // If touch is in bottom-right 26dp corner → let resize handle take it
+                                                            val cornerPx = 26.dp.toPx()
+                                                            val inCorner = offset.x > size.width - cornerPx &&
+                                                                           offset.y > size.height - cornerPx
+                                                            if (inCorner) {
+                                                                resizeDragging = true
+                                                                // Cancel this gesture so the resize handle wins
+                                                                // by throwing CancellationException via awaitPointerEventScope
+                                                                // — simplest approach: just skip updates when resizeDragging
+                                                            }
+                                                        },
+                                                        onDragEnd   = { resizeDragging = false },
+                                                        onDragCancel= { resizeDragging = false },
+                                                        onDrag = { _, drag ->
+                                                            if (!resizeDragging) {
+                                                                val idx2 = overlays.indexOfFirst { it.id == ov.id }
+                                                                if (idx2 >= 0) overlays[idx2] = overlays[idx2].copy(
+                                                                    xPt = (overlays[idx2].xPt + drag.x / docScale)
+                                                                        .coerceIn(0f, pageWidthPt - ov.wPt),
+                                                                    yPt = (overlays[idx2].yPt - drag.y / docScale)
+                                                                        .coerceIn(0f, pageHeightPt - ov.hPt)
+                                                                )
+                                                            }
+                                                        }
+                                                    )
                                                 }
                                             ) {
                                                 Text(ov.text, fontSize = (8 * docScale / density.density)
@@ -717,36 +767,46 @@ fun InPlaceEditorScreen(
                                                     color = Color(0xFF5D4037), maxLines = 5,
                                                     overflow = androidx.compose.ui.text.style.TextOverflow.Clip)
                                             }
-                                            // Resize handle (bottom-right)
+                                            // ── Resize handle (bottom-right) ─────────────────
+                                            // Uses a SEPARATE key ("_r") so pointerInput is
+                                            // independent from the move gesture above, and
+                                            // onDragStart consumes the event immediately so
+                                            // the body-drag never sees it.
                                             if (sel) {
                                                 Box(Modifier
                                                     .align(Alignment.BottomEnd)
-                                                    .size(18.dp)
-                                                    .background(Color(0xFFF9A825), RoundedCornerShape(4.dp))
-                                                    .pointerInput(ov.id) {
-                                                        detectDragGestures { _, drag ->
-                                                            val dw = drag.x / docScale
-                                                            val dh = drag.y / docScale
-                                                            val idx2 = overlays.indexOfFirst { it.id == ov.id }
-                                                            if (idx2 >= 0) overlays[idx2] = overlays[idx2].copy(
-                                                                // min 40pt wide x 20pt tall, max page size
-                                                                wPt = (overlays[idx2].wPt + dw)
-                                                                    .coerceIn(40f, pageWidthPt),
-                                                                hPt = (overlays[idx2].hPt + dh)
-                                                                    .coerceIn(20f, pageHeightPt)
-                                                            )
-                                                        }
+                                                    .size(26.dp)   // larger tap target
+                                                    .zIndex(10f)   // always on top
+                                                    .background(Color(0xFFF9A825), RoundedCornerShape(5.dp))
+                                                    .pointerInput(ov.id + "_r") {
+                                                        detectDragGestures(
+                                                            onDragStart = { resizeDragging = true },
+                                                            onDragEnd    = { resizeDragging = false },
+                                                            onDragCancel = { resizeDragging = false },
+                                                            onDrag = { _, drag ->
+                                                                val dw = drag.x / docScale
+                                                                val dh = drag.y / docScale
+                                                                val idx2 = overlays.indexOfFirst { it.id == ov.id }
+                                                                if (idx2 >= 0) overlays[idx2] = overlays[idx2].copy(
+                                                                    wPt = (overlays[idx2].wPt + dw)
+                                                                        .coerceIn(40f, pageWidthPt),
+                                                                    hPt = (overlays[idx2].hPt + dh)
+                                                                        .coerceIn(20f, pageHeightPt)
+                                                                )
+                                                            }
+                                                        )
                                                     }
                                                 ) {
                                                     Icon(Icons.Default.OpenWith, null,
-                                                        Modifier.size(12.dp).align(Alignment.Center),
+                                                        Modifier.size(14.dp).align(Alignment.Center),
                                                         tint = Color.White)
                                                 }
                                                 // Delete handle
                                                 Box(Modifier
                                                     .align(Alignment.TopEnd)
-                                                    .size(18.dp)
-                                                    .background(Color(0xFFB71C1C), RoundedCornerShape(9.dp))
+                                                    .size(20.dp)
+                                                    .zIndex(10f)
+                                                    .background(Color(0xFFB71C1C), RoundedCornerShape(10.dp))
                                                     .clickable { overlays.removeAll { it.id == ov.id }; selectedId = null }
                                                 ) {
                                                     Icon(Icons.Default.Close, null,
@@ -926,7 +986,7 @@ fun InPlaceEditorScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = { if (currentPage > 1) { currentPage--; textEdits = emptyMap(); overlays.clear() } },
+                    onClick = { if (currentPage > 1) { if (hasChanges()) pendingPage = currentPage - 1 else currentPage-- } },
                     enabled = currentPage > 1, modifier = Modifier.size(32.dp)) {
                     Icon(Icons.AutoMirrored.Filled.NavigateBefore, null,
                         Modifier.size(18.dp), tint = Color.White)
@@ -934,7 +994,7 @@ fun InPlaceEditorScreen(
                 Text("$currentPage/$pageCount", fontSize = 11.sp, color = Color.White,
                     fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 2.dp))
                 IconButton(
-                    onClick = { if (currentPage < pageCount) { currentPage++; textEdits = emptyMap(); overlays.clear() } },
+                    onClick = { if (currentPage < pageCount) { if (hasChanges()) pendingPage = currentPage + 1 else currentPage++ } },
                     enabled = currentPage < pageCount, modifier = Modifier.size(32.dp)) {
                     Icon(Icons.AutoMirrored.Filled.NavigateNext, null,
                         Modifier.size(18.dp), tint = Color.White)
@@ -981,7 +1041,7 @@ private fun SignaturePadBottomSheet(
             Row(verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Color:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                listOf(Color.Black to "Negro", Color(0xFF1565C0) to "Azul", PdfRed to "Verde").forEach { (c, _) ->
+                listOf(Color.Black to "Negro", Color(0xFF1565C0) to "Azul", PdfRed to "Rojo").forEach { (c, _) ->
                     Box(Modifier.size(if (c == inkColor) 30.dp else 22.dp)
                         .clip(RoundedCornerShape(50))
                         .background(c)
@@ -1043,57 +1103,22 @@ private suspend fun saveAll(
     textEdits  : Map<Int, String>,
     overlays   : List<PlacedOverlay>,
     toolsVm    : ToolsViewModel,
-    overwrite  : Boolean = true,
+    overwrite  : Boolean = false,
     customName : String  = ""
 ) {
-    // 1. Text edits
+    // Todo en UNA pasada: textos, imágenes/firmas, notas, resaltados y censura.
     val editList = textEdits
         .filter { (idx, t) -> idx < textBlocks.size && t != textBlocks[idx].text }
         .map { (idx, t) -> textBlocks[idx] to t }
-    if (editList.isNotEmpty()) {
-        toolsVm.applyWysiwygEdits(context, uri, editList, pageNum,
-            overwrite = overwrite, customName = customName)
-        return   // result flows back via vmResult; UI handles chaining
-    }
-
-    // 2. Overlays: stamp images/signatures
-    val bitmapOverlays = overlays.filter { it.kind == OverlayKind.IMAGE || it.kind == OverlayKind.SIGN }
-    if (bitmapOverlays.isNotEmpty()) {
-        val first = bitmapOverlays.first()
-        val bmp   = first.bitmap ?: return
-        toolsVm.stampSignature(context, uri, bmp, pageNum,
-            first.xPt, first.yPt, first.wPt, first.hPt,
-            overwrite = overwrite, customName = customName)
-        return
-    }
-
-    // 3. Redact areas
-    val redacts = overlays.filter { it.kind == OverlayKind.REDACT }
-    if (redacts.isNotEmpty()) {
-        toolsVm.redactAreas(context, uri, redacts.map {
-            PdfTools.RedactArea(pageNum, it.xPt, it.yPt, it.xPt + it.wPt, it.yPt + it.hPt)
-        }, overwrite = overwrite, customName = customName)
-        return
-    }
-
-    // 4. Annotations
-    val annots = overlays.filter { it.kind == OverlayKind.ANNOTATE }
-    if (annots.isNotEmpty()) {
-        val a = annots.first()
-        toolsVm.addAnnotation(context, uri, "comment", a.text, pageNum,
-            a.xPt, a.yPt, a.wPt, a.hPt, 0xFF006D77.toInt(),
-            overwrite = overwrite, customName = customName)
-        return
-    }
-
-    // 5. Highlights (stored as annotations of type "highlight")
-    val highlights = overlays.filter { it.kind == OverlayKind.HIGHLIGHT }
-    if (highlights.isNotEmpty()) {
-        val h = highlights.first()
-        toolsVm.addAnnotation(context, uri, "highlight", "", pageNum,
-            h.xPt, h.yPt, h.wPt, h.hPt, 0x80FFEB3B.toInt(),
-            overwrite = overwrite, customName = customName)
-    }
+    val changes = PdfTools.EditorChanges(
+        textEdits  = editList,
+        images     = overlays.filter { (it.kind == OverlayKind.IMAGE || it.kind == OverlayKind.SIGN) && it.bitmap != null }
+            .map { PdfTools.ImageStamp(it.bitmap!!, it.xPt, it.yPt, it.wPt, it.hPt, transparent = it.kind == OverlayKind.SIGN || it.bitmap.hasAlpha()) },
+        notes      = overlays.filter { it.kind == OverlayKind.ANNOTATE }.map { PdfTools.NoteStamp(it.text, it.xPt, it.yPt, it.wPt, it.hPt) },
+        highlights = overlays.filter { it.kind == OverlayKind.HIGHLIGHT }.map { PdfTools.RectStamp(it.xPt, it.yPt, it.wPt, it.hPt) },
+        redactions = overlays.filter { it.kind == OverlayKind.REDACT }.map { PdfTools.RectStamp(it.xPt, it.yPt, it.wPt, it.hPt) },
+    )
+    toolsVm.applyEditorChanges(context, uri, pageNum, changes, overwrite = overwrite, customName = customName)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1119,9 +1144,6 @@ private suspend fun loadBitmapFromUri(
     uri     : Uri
 ): Bitmap? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
     try {
-        val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 1 }
-        context.contentResolver.openInputStream(uri)?.use {
-            android.graphics.BitmapFactory.decodeStream(it, null, opts)
-        }
-    } catch (_: Exception) { null }
+        PdfTools.decodeSampled(context, uri, 2000)   // nunca a resolución completa (fotos de 200 MP → sin memoria)
+    } catch (_: Throwable) { null }
 }

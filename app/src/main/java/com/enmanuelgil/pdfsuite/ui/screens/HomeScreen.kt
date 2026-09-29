@@ -54,6 +54,7 @@ private val QUICK_TOOLS = listOf(
 fun HomeScreen(
     onOpenPdf    : (Uri) -> Unit,
     onOpenPicker : () -> Unit,
+    onOpenTool   : (String?) -> Unit,
     homeVm       : HomeViewModel
 ) {
     val context   = LocalContext.current
@@ -90,7 +91,7 @@ fun HomeScreen(
                     }
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("PDFSuite", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                        Text("OptiSuite PDF", fontWeight = FontWeight.Bold, fontSize = 17.sp)
                         Text("optisuite.app", fontSize = 10.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -120,7 +121,13 @@ fun HomeScreen(
                             QuickToolCell(
                                 tool     = tool,
                                 modifier = Modifier.weight(1f),
-                                onClick  = { onOpenPicker() }  // opens PDF, then tools tab handles it
+                                onClick  = {
+                                    when (tool.id) {
+                                        "edit" -> onOpenPicker()   // el editor está dentro del lector
+                                        "more" -> onOpenTool(null)
+                                        else   -> onOpenTool(tool.id)
+                                    }
+                                }
                             )
                         }
                         repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }

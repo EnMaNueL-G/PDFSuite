@@ -59,7 +59,7 @@ fun AboutScreen() {
                 ) {
                     Text("PDF", color = Color.White, fontWeight = FontWeight.Black, fontSize = 22.sp)
                 }
-                Text("PDFSuite", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 26.sp)
+                Text("OptiSuite PDF", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 26.sp)
                 Text(
                     "v${
                         try { context.packageManager
@@ -103,7 +103,7 @@ fun AboutScreen() {
                 AboutRow(Icons.Default.Code, "Código fuente", "github.com/EnMaNueL-G/PDFSuite",
                     onClick = { openUrl("https://github.com/EnMaNueL-G/PDFSuite") })
                 Divider()
-                AboutRow(Icons.Default.Description, "Licencia", "MIT — libre y auditable")
+                AboutRow(Icons.Default.Description, "Licencia", "MIT (código propio) · librerías de terceros abajo")
             }
         }
 
@@ -114,14 +114,15 @@ fun AboutScreen() {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Herramientas incluidas", fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurface)
-                for (f in listOf("📖 Lector con zoom/pan y modo nocturno",
-                    "🔀 Combinar múltiples PDFs",
-                    "✂️ Dividir y extraer páginas",
-                    "🗜️ Comprimir — reduce el peso",
-                    "🔒 Proteger con contraseña",
-                    "🔓 Desbloquear PDF cifrado",
-                    "🔄 Rotar páginas",
-                    "⭐ Favoritos y historial local")) {
+                for (f in listOf("📖 Lector con zoom, búsqueda, modo noche, ir a página e imprimir",
+                    "✍️ Editor directo: texto, firma a mano, imágenes, notas y resaltado",
+                    "⬛ Censura real (el dato se elimina, no solo se tapa)",
+                    "🔀 Combinar · ✂️ dividir · 🔄 rotar · 🗂️ organizar páginas",
+                    "🗜️ Comprimir de verdad (recomprime las imágenes)",
+                    "🔒 Proteger con contraseña AES-256 · 🔓 quitarla",
+                    "📋 Rellenar formularios · 📝 extraer y buscar texto",
+                    "📷 Escanear documentos · 🖼️ imágenes a PDF",
+                    "⭐ Favoritos e historial local")) {
                     Text(f, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -138,7 +139,7 @@ fun AboutScreen() {
                     Text("Apoya el proyecto", fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurface)
                 }
-                Text("PDFSuite es y siempre será gratuito. Si te resulta útil, considera una donación para mantener el desarrollo activo.",
+                Text("OptiSuite PDF es y siempre será gratuito. Si te resulta útil, considera una donación para mantener el desarrollo activo.",
                     fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 18.sp)
 
@@ -154,12 +155,32 @@ fun AboutScreen() {
                 // BSC wallet
                 var copied2 by remember { mutableStateOf(false) }
                 DonationRow(
-                    label = "BSC / BEP20",
+                    label = "USDT (BSC · BEP-20)",
                     value = "0xb6f6731a4ea87f8e1fd6f44f48b5bc4204571f08",
-                    short = "0x0a9a...b3c1",
+                    short = "0xb6f6…1f08",
                     copied = copied2,
                     onCopy = { copyToClipboard("0xb6f6731a4ea87f8e1fd6f44f48b5bc4204571f08", "BSC Wallet"); copied2 = true }
                 )
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // ── Privacidad y licencias ──
+        AboutCard {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Privacidad", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text("• Sin anuncios, sin cuentas y sin permiso de Internet: tus PDF no salen del móvil.\n" +
+                    "• El escáner es un servicio de Google Play (ML Kit). Funciona dentro de Google Play Services y puede enviar a Google estadísticas de uso anónimas, según sus condiciones.\n" +
+                    "• «Traducir» envía el texto a la app que elijas (p. ej. Google Traductor).\n" +
+                    "• Los archivos que creas se guardan en Descargas/OptiSuite PDF.",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 18.sp)
+                Spacer(Modifier.height(4.dp))
+                Text("Licencias de terceros", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text("PdfBox-Android (Apache-2.0) · Jetpack Compose y AndroidX (Apache-2.0) · Coil (Apache-2.0) · " +
+                    "Kotlin Coroutines (Apache-2.0) · Noto Sans (SIL Open Font License 1.1) · " +
+                    "Google ML Kit Document Scanner (condiciones de Google APIs).",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 18.sp)
             }
         }
 

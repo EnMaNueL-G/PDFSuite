@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import com.enmanuelgil.pdfsuite.model.ToolResult
 import com.enmanuelgil.pdfsuite.ui.theme.PdfRed
 import com.enmanuelgil.pdfsuite.ui.viewmodel.ToolsViewModel
@@ -35,6 +36,7 @@ fun ScannerScreen(
     onOpenPdf : (Uri) -> Unit = {}
 ) {
     val context   = LocalContext.current
+    val scope     = rememberCoroutineScope()
     val result    by vm.result.collectAsState()
     val isWorking by vm.isWorking.collectAsState()
 
@@ -50,40 +52,23 @@ fun ScannerScreen(
             // If ML Kit gives us a PDF directly, use it
             val pdf = r.pdf
             if (pdf != null) {
-                // Copy the PDF into our app storage
-                try {
-                    val pdfUri = pdf.uri
-                    val inStream = context.contentResolver.openInputStream(pdfUri)
-                    val outFile  = java.io.File(context.filesDir, "escaneado_${System.currentTimeMillis()}.pdf")
-                    inStream?.use { input ->
-                        outFile.outputStream().use { output -> input.copyTo(output) }
+                // Guardar el PDF del escáner en Descargas/OptiSuite PDF (fuera del hilo principal) y abrirlo
+                scope.launch {
+                    try {
+                        val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH.mm", java.util.Locale.getDefault()).format(java.util.Date())
+                        val saved = com.enmanuelgil.pdfsuite.data.PdfTools.saveCopy(context, pdf.uri, "Escaneo $stamp.pdf")
+                        scanDone = true
+                        onOpenPdf(saved)
+                        onDismiss()
+                    } catch (e: Exception) {
+                        scanError = "Error al guardar el PDF escaneado: ${e.message}"
                     }
-                    scanDone = true
-                    // Return the file URI via FileProvider — trigger open in reader
-                    val fileUri = androidx.core.content.FileProvider.getUriForFile(
-                        context, "com.enmanuelgil.pdfsuite.provider", outFile
-                    )
-                    onOpenPdf(fileUri)
-                    onDismiss()
-                } catch (e: Exception) {
-                    scanError = "Error al guardar el PDF escaneado: ${e.message}"
                 }
             } else {
-                // Fallback: get pages as images and convert to PDF
+                // Sin PDF: convertir las imágenes de las páginas (decodificadas con muestreo, sin agotar memoria)
                 val pages = r.pages ?: emptyList()
                 if (pages.isNotEmpty()) {
-                    val bitmaps = pages.mapNotNull { page ->
-                        try {
-                            val imgUri = page.imageUri
-                            val stream = context.contentResolver.openInputStream(imgUri)
-                            android.graphics.BitmapFactory.decodeStream(stream)
-                        } catch (_: Exception) { null }
-                    }
-                    if (bitmaps.isNotEmpty()) {
-                        vm.imagesToPdf(context, bitmaps)
-                    } else {
-                        scanError = "No se pudieron procesar las páginas escaneadas"
-                    }
+                    vm.imagesToPdf(context, pages.map { it.imageUri }, "escaneado.pdf")
                 } else {
                     scanError = "El escáner no devolvió páginas"
                 }
@@ -206,7 +191,7 @@ fun ManualScanPrompt(
             Spacer(Modifier.height(8.dp))
             Text(
                 "Toma una foto del documento o selecciona imágenes de la galería. " +
-                "PDFSuite las convertirá automáticamente a PDF.",
+                "OptiSuite PDF las convertirá automáticamente a PDF.",
                 fontSize  = 14.sp,
                 color     = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
